@@ -26,6 +26,14 @@ yarn web           # Start web version
 # Code quality
 yarn lint          # Run ESLint
 
+# Database type generation
+yarn types:generate # Generate TypeScript types from Supabase schema
+
+# EAS Build & Deploy (configured for development, preview, production)
+eas build --platform ios --profile development
+eas build --platform android --profile preview
+eas submit --platform ios --profile production
+
 # Project reset (if needed)
 yarn reset-project # Moves current code to app-example/
 ```
@@ -33,17 +41,21 @@ yarn reset-project # Moves current code to app-example/
 ## Application Architecture
 
 ### Tech Stack Core
-- **React Native + Expo SDK 53** with file-based routing (Expo Router)
+- **React Native 0.79.3 + Expo SDK 53** with file-based routing (Expo Router)
 - **Supabase** for auth, database (PostgreSQL), and storage
-- **TypeScript** with path aliases (`@/` → `./`)
-- **NativeWind** (Tailwind for React Native) with custom color scheme
-- **React Query** for server state management
+- **TypeScript 5.8.3** with path aliases (`@/` → `./`)
+- **NativeWind 2.0.11** (Tailwind for React Native) with custom color scheme
+- **React Query (@tanstack/react-query 5.80.7)** for server state management
 - **AsyncStorage** for session persistence
+- **Expo Camera** for book scanning workflow
+- **FlashList** for high-performance inventory lists
+- **EAS Build** for app deployment (configured with development/preview/production profiles)
 
 ### File-Based Routing Structure
 ```
 app/
 ├── _layout.tsx           # Root layout (QueryClient + AuthProvider)
+├── index.tsx            # Root entry point (redirects based on auth)
 ├── login.tsx            # Unauthenticated route
 └── (app)/               # Protected route group
     ├── _layout.tsx      # Authenticated layout (Stack nav)
@@ -51,7 +63,12 @@ app/
     ├── inventory.tsx    # Main inventory management
     ├── catalog-new.tsx  # 3-step camera capture workflow
     ├── catalog-jobs.tsx # Job monitoring with real-time updates
-    └── stock-item/[id].tsx # Dynamic item details
+    ├── catalog-review/[job_id].tsx # Review cataloged books
+    ├── manual-entry.tsx # Manual book entry form
+    ├── add-to-inventory.tsx # Add existing books to inventory
+    ├── edit-book.tsx    # Edit book metadata
+    ├── book-summary/[id].tsx # Book details view
+    └── stock-item/[id].tsx # Individual stock item details
 ```
 
 ### Authentication Flow
@@ -135,14 +152,42 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your_key
 - Debounced search (300ms delay)
 - React Query caching for server state
 - Image optimization in camera workflow
+- Expo Router with typed routes enabled for performance
 
 ### Development Notes
 - Bundle ID: `com.driftless.booksphere`
+- EAS Project ID: `c4debc0f-56ed-4c9b-bbfe-3a210d266fce`
+- Owner: `becomingthesound`
 - Supports iOS tablets, requires camera permissions
 - BuildShip integration for ML-based book cataloging from images
 - Multi-marketplace support (Amazon, eBay) in data model but UI focused on inventory management
+- Uses `react-native-url-polyfill` for URL compatibility
+
+## Important Implementation Notes
+
+### Database Types
+- Database types are auto-generated via `yarn types:generate` from Supabase schema
+- Types are stored in `types/database.types.ts` - never edit manually
+- Always regenerate types after schema changes
+
+### Component Architecture  
+- UI components follow atomic design in `components/` directory
+- Inventory-specific components in `components/inventory/`
+- Stock item components in `components/stock-item/`  
+- Common reusable components in `components/common/`
+
+### Styling Conventions
+- All styling uses NativeWind classes, never inline styles
+- Custom color tokens defined in design system
+- Responsive design with platform-specific adjustments via `Platform.OS`
+
+### Data Flow Patterns
+- All complex database operations use RPC functions for security and performance
+- Real-time updates via Supabase subscriptions (see `useCatalogJobs` hook)
+- Infinite scroll patterns with debounced search (see `useInventory` hook)
 
 ## Memories
 
-- Always add "view_" for any views created in supabase
+- Always add "view_" prefix for any views created in Supabase
 - Never change the database schema itself without explicit permission
+- Use `yarn types:generate` after any schema changes to update TypeScript types

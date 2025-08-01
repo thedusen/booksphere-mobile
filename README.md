@@ -1,50 +1,183 @@
-# Welcome to your Expo app 👋
+# Booksphere Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A React Native (Expo) application for managing used and rare book inventory with ML-powered cataloging.
 
-## Get started
+## Overview
 
-1. Install dependencies
+Booksphere is a mobile inventory management system designed specifically for used and rare book dealers. The app features:
 
-   ```bash
-   npm install
-   ```
+- 📸 **Smart Cataloging**: Capture book cover, title page, and copyright page images for automatic ML-powered cataloging
+- 📚 **Inventory Management**: Search, filter, and manage your book inventory with ease
+- 🔄 **Real-time Sync**: All data syncs instantly across devices via Supabase
+- 📱 **Native Performance**: Built with React Native and optimized for iOS and Android
 
-2. Start the app
+## Tech Stack
 
-   ```bash
-   npx expo start
-   ```
+- **React Native 0.79.3** with **Expo SDK 53**
+- **TypeScript 5.8.3** for type safety
+- **Supabase** for backend (auth, database, storage)
+- **NativeWind 2.0.11** for styling (Tailwind for React Native)
+- **React Query** for server state management
+- **Expo Router** for file-based navigation
 
-In the output, you'll find options to open the app in a
+## Getting Started
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Prerequisites
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- Node.js 18+ and Yarn
+- Expo CLI: `npm install -g expo-cli`
+- EAS CLI: `npm install -g eas-cli`
+- iOS Simulator (Mac) or Android Emulator
 
-## Get a fresh project
-
-When you're ready, run:
+### Installation
 
 ```bash
-npm run reset-project
+# Clone the repository
+git clone <repository-url>
+cd booksphere-mobile
+
+# Install dependencies
+yarn install
+
+# Start development server
+yarn start
+
+# Or platform-specific
+yarn ios     # iOS Simulator
+yarn android # Android Emulator
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### Environment Setup
 
-## Learn more
+Create a `.env` file in the root directory:
 
-To learn more about developing your project with Expo, look at the following resources:
+```env
+EXPO_PUBLIC_SUPABASE_URL=https://oteqbwupxzjjvqbkumlt.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+EXPO_PUBLIC_API_BASE_URL=https://qdpvud.buildship.run
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Test Accounts
 
-## Join the community
+For internal testing, use these credentials:
 
-Join our community of developers creating universal apps.
+```
+Email: test1@booksphere.com
+Password: TestUser123!
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Email: test2@booksphere.com  
+Password: TestUser123!
+
+Email: test3@booksphere.com
+Password: TestUser123!
+```
+
+**Note**: These accounts have pre-populated inventory data for testing various features.
+
+## Features Guide
+
+### 1. Book Cataloging
+
+The app's signature feature is the 3-step camera capture workflow:
+
+1. Navigate to "Catalog New Book" from the dashboard
+2. Capture three photos in sequence:
+   - **Book Cover**: Front cover of the book
+   - **Title Page**: Interior title page with full title and author
+   - **Copyright Page**: Page with ISBN, publisher, and publication date
+3. Review captured images and submit for processing
+4. Monitor processing status in "Catalog Jobs"
+5. Review and edit extracted information before adding to inventory
+
+### 2. Inventory Management
+
+- **Search**: Type in the search bar to find books by title, author, or ISBN
+- **Filters**: Use the filter chips to show all books, in-stock only, or out-of-stock
+- **Book Details**: Tap any book to view full details including:
+  - Multiple editions
+  - Stock locations
+  - Pricing information
+  - Condition notes
+
+### 3. Manual Entry
+
+For books that can't be scanned or need quick entry:
+1. Use "Manual Entry" from the dashboard
+2. Fill in book details manually
+3. Add to inventory with custom pricing and condition
+
+## Build & Deployment
+
+### Development Build
+
+```bash
+# For internal testing with development features
+eas build --platform ios --profile development
+```
+
+### Production Build (TestFlight)
+
+```bash
+# Build and submit to TestFlight
+eas build --platform ios --profile production --auto-submit
+```
+
+### Build Profiles
+
+- **development**: Includes dev client, internal distribution
+- **preview**: Testing build, internal distribution
+- **production**: App Store ready, auto-increments version
+
+## Project Structure
+
+```
+app/
+├── _layout.tsx              # Root layout with providers
+├── (app)/                   # Protected routes
+│   ├── index.tsx           # Dashboard
+│   ├── inventory.tsx       # Main inventory screen
+│   ├── catalog-new.tsx     # Camera capture workflow
+│   ├── catalog-jobs.tsx    # Job monitoring
+│   └── book-summary/[id].tsx # Book details
+├── components/             # Reusable components
+├── context/               # Auth and app context
+├── hooks/                 # Custom React hooks
+└── lib/                   # Utilities and Supabase client
+```
+
+## Development Commands
+
+```bash
+yarn start          # Start Expo development server
+yarn ios           # Run on iOS simulator
+yarn android       # Run on Android emulator
+yarn lint          # Run ESLint
+yarn types:generate # Generate TypeScript types from Supabase
+```
+
+## Troubleshooting
+
+### Camera Not Working
+- Ensure you've granted camera permissions
+- On iOS Simulator, camera is not available - use a real device
+
+### Login Issues
+- Check internet connection
+- Verify Supabase URL and anon key in .env
+- Try logging out and back in
+
+### Build Failures
+- Run `eas build --clear-cache` to clear build cache
+- Ensure all environment variables are set
+- Check that you're logged into EAS: `eas whoami`
+
+## Support
+
+For issues or questions:
+- Create an issue in the repository
+- Contact the development team
+- Check Expo and Supabase documentation
+
+## License
+
+Proprietary - All rights reserved

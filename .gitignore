@@ -44,4 +44,4 @@ ignore/
 .mcp.json
 
 # stakeholder reports and sensitive docs
-STAKEHOLDER_REPORT.md
+STAKEHOLDER_REPORT.md.env

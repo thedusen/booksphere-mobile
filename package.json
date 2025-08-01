@@ -8,7 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "types:generate": "supabase gen types typescript --project-id oteqbwupxzjjvqbkumlt --schema public > types/database.types.ts"
   },
   "dependencies": {
     "@babel/runtime": "^7.27.6",
@@ -24,7 +25,7 @@
     "expo-blur": "~14.1.5",
     "expo-camera": "~16.1.8",
     "expo-constants": "~17.1.6",
-    "expo-dev-client": "~5.2.0",
+    "expo-dev-client": "~5.2.4",
     "expo-font": "~13.3.1",
     "expo-haptics": "~14.1.4",
     "expo-image": "~2.3.0",

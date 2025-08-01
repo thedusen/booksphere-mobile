@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "/Users/mitch/Documents/Projects/booksphere-mobile/logs/.1323ff657d588cfe8304f241417698dc2ec59271-audit.json",
+    "files": [
+        {
+            "date": 1754010280062,
+            "name": "/Users/mitch/Documents/Projects/booksphere-mobile/logs/mcp-puppeteer-2025-07-31.log",
+            "hash": "0f401a1b4486246643d586f35acb41caf7c7679793183855dd0bf1d731913d29"
+        }
+    ],
+    "hashType": "sha256"
+}

@@ -1,5 +1,5 @@
 // hooks/useInventory.ts
-import { supabase } from '@/lib/supabase';
+import { RPCResponse, supabase, Tables } from '@/lib/supabase';
 import type { FilterType, GroupedEdition, StockItem } from '@/types/inventory';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -91,16 +91,22 @@ export interface StockItemDetails {
 
 const ITEMS_PER_PAGE = 20;
 
+// Type-safe definitions using the generated RPC types
+type SearchInventoryResponse = RPCResponse<'search_inventory'>;
+type GetInventoryStatsResponse = RPCResponse<'get_inventory_stats'>;
+type GetInventorySummaryMetricsResponse = RPCResponse<'get_inventory_summary_metrics'>;
+
 export const useInventory = ({ searchQuery, filterType, organizationId }: InventoryParams) => {
   return useInfiniteQuery({
     queryKey: ['inventory', searchQuery, filterType, organizationId],
-    queryFn: async ({ pageParam }: { pageParam: number }) => {
+    queryFn: async ({ pageParam }: { pageParam: { lastDateAdded?: string; lastEditionId?: string } | undefined }) => {
       const { data, error } = await supabase.rpc('search_inventory', {
-        org_id: organizationId,
-        search_query: searchQuery,
-        filter_type: filterType,
-        limit_count: ITEMS_PER_PAGE,
-        offset_count: pageParam * ITEMS_PER_PAGE,
+        p_org_id: organizationId,
+        p_search_query: searchQuery,
+        p_filter_type: filterType,
+        p_limit_count: ITEMS_PER_PAGE,
+        p_last_date_added: pageParam?.lastDateAdded || undefined,
+        p_last_edition_id: pageParam?.lastEditionId || undefined,
       });
 
       if (error) {
@@ -108,9 +114,12 @@ export const useInventory = ({ searchQuery, filterType, organizationId }: Invent
         throw error;
       }
 
-      const transformedData: GroupedEdition[] = (data || []).map((item: any) => ({
+      // Now properly typed using the generated RPC response type
+      const typedData = data as SearchInventoryResponse;
+      
+      const transformedData: GroupedEdition[] = (typedData || []).map((item) => ({
         edition_id: item.edition_id,
-        book_id: item.book_id,  // Include book_id
+        book_id: item.book_id,
         title: item.title,
         primary_author: item.primary_author,
         cover_image_url: item.cover_image_url,
@@ -118,12 +127,12 @@ export const useInventory = ({ searchQuery, filterType, organizationId }: Invent
         isbn10: item.isbn10,
         publisher_name: item.publisher_name,
         published_date: item.published_date,
-        total_copies: parseInt(item.total_copies),
+        total_copies: item.total_copies,
         price_range: {
-          min: parseFloat(item.min_price || '0'),
-          max: parseFloat(item.max_price || '0'),
+          min: item.min_price,
+          max: item.max_price,
         },
-        stock_items: item.stock_items.map((stockItem: any) => ({
+        stock_items: Array.isArray(item.stock_items) ? item.stock_items.map((stockItem: any) => ({
           stock_item_id: stockItem.stock_item_id,
           condition_name: stockItem.condition_name,
           selling_price_amount: parseFloat(stockItem.selling_price_amount || '0'),
@@ -134,15 +143,23 @@ export const useInventory = ({ searchQuery, filterType, organizationId }: Invent
           has_photos: stockItem.has_photos,
           marketplace_listings: stockItem.marketplace_listings || [],
           attributes: stockItem.attributes || [],
-        })),
+        })) : [],
       }));
 
       return transformedData;
     },
-    initialPageParam: 0,
-    getNextPageParam: (lastPage: GroupedEdition[], pages: GroupedEdition[][]) => {
+    initialPageParam: undefined,
+    getNextPageParam: (lastPage: GroupedEdition[], pages: GroupedEdition[][], allPages: any) => {
       if (lastPage.length < ITEMS_PER_PAGE) return undefined;
-      return pages.length;
+      
+      // Use the max_date_added from the last item for cursor pagination
+      const lastItem = lastPage[lastPage.length - 1];
+      if (!lastItem) return undefined;
+      
+      return {
+        lastDateAdded: lastItem.stock_items[0]?.date_added_to_stock,
+        lastEditionId: lastItem.edition_id
+      };
     },
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
@@ -163,14 +180,17 @@ export const useInventoryStats = (organizationId: string) => {
         throw error;
       }
 
-      const stats = data?.[0] || {};
+      // Use the properly typed response
+      const typedData = data as GetInventoryStatsResponse;
+      const stats = typedData?.[0] || {};
+      
       return {
-        total_books: parseInt(stats.total_books || '0'),
-        active_listings: parseInt(stats.active_listings || '0'),
-        needs_photos: parseInt(stats.needs_photos || '0'),
-        unique_editions: parseInt(stats.unique_editions || '0'),
-        amazon_listings: parseInt(stats.amazon_listings || '0'),
-        ebay_listings: parseInt(stats.ebay_listings || '0'),
+        total_books: stats.total_books || 0,
+        active_listings: stats.active_listings || 0,
+        needs_photos: stats.needs_photos || 0,
+        unique_editions: stats.unique_editions || 0,
+        amazon_listings: stats.amazon_listings || 0,
+        ebay_listings: stats.ebay_listings || 0,
       };
     },
     staleTime: 1 * 60 * 1000,
@@ -194,7 +214,8 @@ export const useInventorySearchCount = ({ searchQuery, filterType, organizationI
         throw error;
       }
 
-      return parseInt(data || '0');
+      // The RPC returns a number directly, not an array
+      return typeof data === 'number' ? data : 0;
     },
     staleTime: 30 * 1000, // 30 seconds
     gcTime: 2 * 60 * 1000, // 2 minutes
@@ -216,7 +237,13 @@ export const useStockItem = (stockItemId: string, organizationId: string) => {
         throw new Error(error.message);
       }
       
-      return data as StockItemDetails;
+      // Since the RPC returns Json, we need to validate and transform it
+      // This is safer than using 'as unknown as' because we're explicitly handling the Json type
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid stock item data received');
+      }
+      
+      return data as unknown as StockItemDetails;
     },
     enabled: !!stockItemId && !!organizationId,
   });
@@ -238,13 +265,8 @@ export const useDebounce = <T>(value: T, delay: number): T => {
   return debouncedValue;
 };
 
-
-// New type for a single condition standard
-export interface ConditionStandard {
-    condition_id: string;
-    standard_name: string;
-    description: string | null;
-}
+// Use the generated type for condition standards table
+export type ConditionStandard = Tables<'condition_standards'>;
 
 // New hook to fetch all condition standards
 export const useConditions = () => {
@@ -253,7 +275,7 @@ export const useConditions = () => {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('condition_standards')
-                .select('condition_id, standard_name, description')
+                .select('condition_id, standard_name, description, sort_order, created_at')
                 .order('sort_order', { ascending: true });
 
             if (error) {
@@ -282,7 +304,12 @@ export const useBookSummary = ({ bookId, organizationId }: BookSummaryParams) =>
                 throw new Error(error.message);
             }
 
-            return data as BookSummary;
+            // Since the RPC returns Json, we need to validate and transform it
+            if (!data || typeof data !== 'object') {
+                throw new Error('Invalid book summary data received');
+            }
+
+            return data as unknown as BookSummary;
         },
         enabled: !!bookId && !!organizationId,
         staleTime: 2 * 60 * 1000, // 2 minutes
@@ -307,13 +334,15 @@ export const useInventorySummaryMetrics = ({ searchQuery, filterType, organizati
         throw error;
       }
 
-      const metrics = data || {};
+      // Use the properly typed response
+      const typedData = data as GetInventorySummaryMetricsResponse;
+      const metrics = typedData?.[0] || {};
+      
       return {
-        book_count: parseInt(metrics.book_count || '0'),
-        // ✅ ADDED: total_item_count
-        total_item_count: parseInt(metrics.total_item_count || '0'),
-        total_value_in_cents: parseInt(metrics.total_value_in_cents || '0'),
-        needs_photos_count: parseInt(metrics.needs_photos_count || '0'),
+        book_count: metrics.book_count || 0,
+        total_item_count: metrics.total_item_count || 0,
+        total_value_in_cents: metrics.total_value_in_cents || 0,
+        needs_photos_count: metrics.needs_photos_count || 0,
       };
     },
     staleTime: 30 * 1000,

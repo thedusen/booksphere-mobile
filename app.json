@@ -5,11 +5,13 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
+    "scheme": "booksphere",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.driftless.booksphere",
       "infoPlist": {
+        "NSCameraUsageDescription": "Booksphere uses the camera to scan book covers, title pages, and copyright pages for quick cataloging.",
         "NSMotionUsageDescription": "This app uses motion data for features like camera stabilization to improve scanning performance.",
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -42,7 +44,11 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {}
-    }
+      "router": {},
+      "eas": {
+        "projectId": "c4debc0f-56ed-4c9b-bbfe-3a210d266fce"
+      }
+    },
+    "owner": "becomingthesound"
   }
 }

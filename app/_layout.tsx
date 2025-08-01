@@ -1,4 +1,5 @@
 // app/_layout.tsx
+import 'expo-dev-client';
 import { AuthProvider } from '@/context/AuthContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Slot } from 'expo-router';

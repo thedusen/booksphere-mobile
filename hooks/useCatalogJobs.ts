@@ -1,23 +1,13 @@
 // hooks/useCatalogJobs.ts
-import { supabase } from '@/lib/supabase';
+import { Enums, supabase, Tables } from '@/lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
-// Define the type for a single job for type safety
-export interface CatalogJob {
-  job_id: string;
-  organization_id: string;
-  user_id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  image_urls: {
-    cover_url?: string;
-    title_page_url?: string;
-    copyright_page_url?: string;
-  };
-  extracted_data: any | null;
-  error_message: string | null;
-  created_at: string;
-}
+// Use the generated type for the cataloging_jobs table
+export type CatalogJob = Tables<'cataloging_jobs'>;
+
+// Use the generated enum for status
+export type CatalogJobStatus = Enums<'cataloging_job_status'>;
 
 // Custom hook to fetch jobs and subscribe to real-time updates
 export const useCatalogJobs = (organizationId: string) => {
