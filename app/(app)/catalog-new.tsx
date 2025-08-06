@@ -1,5 +1,7 @@
 // app/(app)/catalog-new.tsx
 import { useAuth } from '@/context/AuthContext';
+import { useSnackbar } from '@/hooks/useSnackbar';
+import { useJobStatusSnackbars } from '@/hooks/useJobStatusSnackbars';
 import { supabase } from '@/lib/supabase';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Stack, useRouter } from 'expo-router';
@@ -22,8 +24,17 @@ export default function CatalogNewScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
 
-  // ✅ Get the user object from our AuthContext
-  const { user } = useAuth();
+  // Get the user object from our AuthContext
+  const { user, organizationId } = useAuth();
+  
+  // Get snackbar functionality
+  const { showSnackbar } = useSnackbar();
+  
+  // Get job tracking functionality for dashboard updates and notifications
+  const { trackNewJob } = useJobStatusSnackbars({ 
+    organizationId: organizationId || '',
+    enableNotifications: true 
+  });
 
   const [step, setStep] = useState<CaptureStep>('cover');
   const [images, setImages] = useState<Record<string, string | null>>({
@@ -69,13 +80,12 @@ export default function CatalogNewScreen() {
     );
   };
   
-// In app/(app)/catalog-new.tsx
-
 const handleSubmit = async () => {
     if (!user) {
-      Alert.alert("Error", "You must be logged in to submit a job.");
+      showSnackbar('error', 'You must be logged in to submit a job.');
       return;
     }
+    
     setIsSubmitting(true);
 
     try {
@@ -86,8 +96,6 @@ const handleSubmit = async () => {
           const fileName = `${key}-${Date.now()}.jpg`;
           const filePath = `${user.id}/${fileName}`;
 
-          // ✅ THE FIX: We now use FormData, the web standard for file uploads.
-          // This is a much more robust way to handle file data in React Native.
           const formData = new FormData();
           formData.append('file', {
             uri,
@@ -95,11 +103,9 @@ const handleSubmit = async () => {
             type: 'image/jpeg',
           } as any);
 
-          // The Supabase client can directly handle FormData.
           const { data, error } = await supabase.storage
             .from('cataloging-uploads')
             .upload(filePath, formData, {
-              // Note: We don't specify contentType here, as it's part of the FormData
               cacheControl: '3600',
               upsert: false,
             });
@@ -116,37 +122,66 @@ const handleSubmit = async () => {
       const uploadedUrlsArray = await Promise.all(uploadPromises);
       const imageUrls = uploadedUrlsArray.reduce((acc, curr) => ({ ...acc, ...curr }), {});
 
-      // The rest of the logic remains unchanged...
-      const buildshipPayload = { imageUrls };
-      const API_ENDPOINT = 'https://qdpvud.buildship.run/catalog-from-images';
+      // 2. Create cataloging job in database first
+      const { data: newJobId, error: createError } = await supabase
+        .rpc('create_cataloging_job', {
+          image_urls_payload: imageUrls
+        });
+        
+      if (createError) {
+        console.error('Failed to create cataloging job:', createError);
+        throw createError;
+      }
+      
+      console.log('✅ New cataloging job created with ID:', newJobId);
+
+      // Track the new job for dashboard updates and notifications
+      trackNewJob(newJobId);
+
+      // Show success snackbar and navigate immediately - no blocking!
+      showSnackbar('success', 'Cataloging job started! Processing in background.');
+      router.replace('/');
+
+      // Continue with Edge Function call in background (non-blocking)
+      const edgeFunctionPayload = { jobId: newJobId };
+      const API_ENDPOINT = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-cataloging-job`;
       const session = await supabase.auth.getSession();
       const token = session?.data?.session?.access_token;
 
       if (!token) {
-        throw new Error("Authentication token not found.");
+        console.error('Authentication token not found for background processing');
+        return;
       }
 
-      const response = await fetch(API_ENDPOINT, { 
+      // Background API call - errors here won't block the user
+      fetch(API_ENDPOINT, { 
         method: 'POST', 
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(buildshipPayload)
+        body: JSON.stringify(edgeFunctionPayload)
+      }).then(response => {
+        if (!response.ok) {
+          console.error('Background Edge Function API failed:', response.status, response.statusText);
+        } else {
+          console.log('✅ Background Edge Function request successful:', response.status);
+        }
+      }).catch(error => {
+        console.error('Background Edge Function API error:', error);
       });
-      
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Buildship API submission failed: ${response.status} ${errorBody}`);
-      }
-
-      router.replace('/catalog-jobs');
 
     } catch (error: any) {
-        console.error("Submission failed", error);
-        Alert.alert('Submission Failed', error.message || 'Could not submit images for cataloging.');
+      console.error("Submission failed", error);
+      showSnackbar('error', 'Failed to submit images for cataloging.', {
+        action: {
+          label: 'Retry',
+          onPress: () => handleSubmit(),
+          accessibilityHint: 'Retry submitting images for cataloging'
+        }
+      });
     } finally {
-        setIsSubmitting(false);
+      setIsSubmitting(false);
     }
   };
   
@@ -281,7 +316,7 @@ const styles = StyleSheet.create({
   modalImage: { width: '100%', height: '80%' },
   modalCloseButton: { position: 'absolute', bottom: 40, backgroundColor: '#1FB1AB', paddingHorizontal: 40, paddingVertical: 15, borderRadius: 8 },
   reviewScrollContainer: { padding: 20, paddingBottom: 120 },
-  reviewItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', padding: 10, borderRadius: 12, marginBottom: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 3 },
+  reviewItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', padding: 10, borderRadius: 12, marginBottom: 15, elevation: 3 },
   reviewImage: { width: 60, height: 90, borderRadius: 4, backgroundColor: '#E5E7EB' },
   reviewLabel: { flex: 1, marginLeft: 15, fontSize: 16, fontWeight: '600' },
   retakeButton: { padding: 10, alignItems: 'center' },

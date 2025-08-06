@@ -1,10 +1,12 @@
 // app/(app)/catalog-jobs.tsx
 import { useAuth } from '@/context/AuthContext';
 import { CatalogJob, useCatalogJobs } from '@/hooks/useCatalogJobs';
+import { useSnackbar } from '@/hooks/useSnackbar';
 import { supabase } from '@/lib/supabase';
+import { calculateOverallConfidence, getConfidenceDisplayText, getConfidenceAccessibilityLabel, getConfidenceIcon, getConfidenceBackgroundColor, type ConfidenceLevel } from '@/utils/confidence';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Stack, useRouter } from 'expo-router';
-import { AlertCircle, CheckCircle2, CheckSquare, ChevronRight, Clock, Edit3, Eye, Image as ImageIcon, Loader, MoreVertical, Plus, RotateCcw, SlidersHorizontal, Square, Trash2 } from 'lucide-react-native';
+import { AlertCircle, AlertTriangle, CheckCircle2, CheckSquare, Clock, Edit3, Image as ImageIcon, Loader, MoreVertical, Plus, RotateCcw, SlidersHorizontal, Square, Trash2 } from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Modal, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -26,6 +28,7 @@ const JobStatusRow = ({
   item, 
   onDelete, 
   onCancelAndRetry,
+  onReprocess,
   isSelectionMode, 
   isSelected, 
   onToggleSelect 
@@ -33,12 +36,21 @@ const JobStatusRow = ({
   item: CatalogJob; 
   onDelete: (jobId: string) => void;
   onCancelAndRetry: (jobId: string) => void;
+  onReprocess: (jobId: string) => void;
   isSelectionMode: boolean;
   isSelected: boolean;
   onToggleSelect: (jobId: string) => void;
 }) => {
     const router = useRouter();
-    const coverImageUrl = item.image_urls?.cover_url;
+    const coverImageUrl = (item.image_urls as any)?.cover_url;
+    
+    // Calculate confidence for completed jobs
+    const confidence = useMemo(() => {
+        if (item.status === 'completed' && item.extracted_data) {
+            return calculateOverallConfidence(item.extracted_data as any);
+        }
+        return 'high' as ConfidenceLevel;
+    }, [item.status, item.extracted_data]);
     const [showActions, setShowActions] = useState(false);
 
     const handlePress = () => {
@@ -47,8 +59,8 @@ const JobStatusRow = ({
                 onToggleSelect(item.job_id);
             }
         } else if (item.status === 'completed') {
-            // For completed jobs, show context menu instead of direct navigation
-            setShowActions(true);
+            // For completed jobs, navigate directly to review
+            router.push(`/catalog-review/${item.job_id}`);
         } else if (item.status === 'failed') {
             Alert.alert("Job Failed", item.error_message || "An unknown error occurred during processing.");
         }
@@ -89,18 +101,43 @@ const JobStatusRow = ({
         );
     };
 
-    const canDelete = item.status === 'pending' || item.status === 'failed' || item.status === 'completed';
-    const canShowActions = item.status === 'pending' || item.status === 'failed' || item.status === 'completed';
+    const handleReprocess = () => {
+        setShowActions(false);
+        Alert.alert(
+            "Reprocess Job",
+            "This will create a new job with the same images for reprocessing. The original job will remain unchanged. Continue?",
+            [
+                { text: "Cancel", style: "cancel" },
+                { 
+                    text: "Reprocess", 
+                    onPress: () => onReprocess(item.job_id) 
+                }
+            ]
+        );
+    };
+
+    const canDelete = item.status === 'pending' || item.status === 'failed'; // Only pending and failed jobs can be deleted
+    const canShowActions = item.status === 'pending' || item.status === 'failed' || item.status === 'completed'; // Show context menu for jobs that have actions available
+
+    // Get confidence-based styling
+    const confidenceBackgroundColor = item.status === 'completed' 
+        ? getConfidenceBackgroundColor(confidence) 
+        : 'white';
 
     return (
         <TouchableOpacity 
             style={[
                 styles.rowContainer,
+                { backgroundColor: confidenceBackgroundColor },
                 isSelectionMode && canDelete && styles.selectableRow,
                 isSelected && styles.selectedRow
             ]} 
             onPress={handlePress}
             disabled={!isSelectionMode && item.status !== 'completed' && item.status !== 'failed'}
+            accessibilityLabel={item.status === 'completed' 
+                ? getConfidenceAccessibilityLabel(confidence)
+                : `Job ${item.status}, created ${new Date(item.created_at).toLocaleDateString()}`
+            }
         >
             {coverImageUrl ? (
                 <Image source={{ uri: coverImageUrl }} style={styles.thumbnail} />
@@ -113,8 +150,20 @@ const JobStatusRow = ({
                 <Text style={styles.rowDate}>{new Date(item.created_at).toLocaleString()}</Text>
                 {item.status === 'completed' ? (
                     <View style={styles.completedStatusContainer}>
-                        <CheckCircle2 size={16} color="#22C55E" />
-                        <Text style={styles.completedStatusText}>Ready for Review</Text>
+                        {(() => {
+                            const iconConfig = getConfidenceIcon(confidence);
+                            const IconComponent = iconConfig.name === 'CheckCircle2' ? CheckCircle2 
+                                : iconConfig.name === 'AlertTriangle' ? AlertTriangle 
+                                : AlertCircle;
+                            return <IconComponent size={16} color={iconConfig.color} />;
+                        })()}
+                        <Text style={[
+                            styles.completedStatusText,
+                            confidence === 'medium' && styles.mediumConfidenceText,
+                            confidence === 'low' && styles.lowConfidenceText
+                        ]}>
+                            {getConfidenceDisplayText(confidence)}
+                        </Text>
                     </View>
                 ) : (
                     <Text style={styles.rowStatus}>{item.status.charAt(0).toUpperCase() + item.status.slice(1)}</Text>
@@ -154,25 +203,30 @@ const JobStatusRow = ({
                     onPress={() => setShowActions(false)}
                 >
                     <View style={styles.actionSheet}>
-                        {item.status === 'completed' && (
-                            <TouchableOpacity style={styles.actionItem} onPress={() => {
-                                setShowActions(false);
-                                router.push(`/catalog-review/${item.job_id}`);
-                            }}>
-                                <Eye size={20} color="#1FB1AB" />
-                                <Text style={styles.reviewActionText}>Review</Text>
-                            </TouchableOpacity>
-                        )}
                         {item.status === 'pending' && (
                             <TouchableOpacity style={styles.actionItem} onPress={handleCancelAndRetry}>
                                 <RotateCcw size={20} color="#1FB1AB" />
                                 <Text style={styles.retryActionText}>Cancel and Retry</Text>
                             </TouchableOpacity>
                         )}
-                        <TouchableOpacity style={styles.actionItem} onPress={handleDelete}>
-                            <Trash2 size={20} color="#EF4444" />
-                            <Text style={styles.deleteActionText}>Delete Job</Text>
-                        </TouchableOpacity>
+                        {item.status === 'failed' && (
+                            <TouchableOpacity style={styles.actionItem} onPress={handleCancelAndRetry}>
+                                <RotateCcw size={20} color="#1FB1AB" />
+                                <Text style={styles.retryActionText}>Retry</Text>
+                            </TouchableOpacity>
+                        )}
+                        {item.status === 'completed' && (
+                            <TouchableOpacity style={styles.actionItem} onPress={handleReprocess}>
+                                <RotateCcw size={20} color="#1FB1AB" />
+                                <Text style={styles.retryActionText}>Reprocess</Text>
+                            </TouchableOpacity>
+                        )}
+                        {canDelete && (
+                            <TouchableOpacity style={styles.actionItem} onPress={handleDelete}>
+                                <Trash2 size={20} color="#EF4444" />
+                                <Text style={styles.deleteActionText}>Delete Job</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </TouchableOpacity>
             </Modal>
@@ -181,16 +235,19 @@ const JobStatusRow = ({
 };
 
 type SortOption = 'date-desc' | 'date-asc' | 'status';
-type FilterOption = 'all' | 'pending' | 'processing' | 'completed' | 'failed';
+type FilterOption = 'all' | 'pending' | 'processing' | 'completed' | 'failed' | 'needs-review';
+type ConfidenceFilterOption = 'all' | 'high' | 'medium' | 'low';
 
 export default function CatalogJobsScreen() {
   const { organizationId } = useAuth();
   const { data: jobs, isLoading, error, refetch } = useCatalogJobs(organizationId || '');
+  const { showSnackbar } = useSnackbar();
   const queryClient = useQueryClient();
   const router = useRouter();
   
   const [sortBy, setSortBy] = useState<SortOption>('date-desc');
   const [filterBy, setFilterBy] = useState<FilterOption>('all');
+  const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilterOption>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -200,15 +257,41 @@ export default function CatalogJobsScreen() {
   const deleteMutation = useMutation({
     mutationFn: async (jobId: string) => {
       console.log('Attempting to delete job:', jobId);
-      const { data, error } = await supabase
-        .from('cataloging_jobs')
-        .delete()
-        .eq('job_id', jobId)
-        .select();
+      
+      // Get current user ID for the RPC call
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      const { data, error } = await supabase.rpc('delete_cataloging_job_secure', {
+        p_job_id: jobId,
+        p_user_id: user.id
+      });
       
       console.log('Delete result:', { data, error });
       if (error) throw error;
-      return data;
+      
+      if (data === true) {
+        console.log('✅ Job deleted successfully');
+        return { success: true, jobId };
+      } else {
+        // Get more specific error message based on job status
+        const { data: jobInfo } = await supabase
+          .from('cataloging_jobs')
+          .select('status')
+          .eq('job_id', jobId as any)
+          .single();
+        
+        const status = (jobInfo as any)?.status || 'unknown';
+        const errorMessage = status === 'completed' 
+          ? 'Completed jobs cannot be deleted. You can only delete pending or failed jobs.'
+          : status === 'processing'
+          ? 'Jobs that are currently processing cannot be deleted.'
+          : 'Job deletion failed: You may not have permission to delete this job.';
+        
+        throw new Error(errorMessage);
+      }
     },
     onSuccess: (data) => {
       console.log('Delete successful:', data);
@@ -223,11 +306,35 @@ export default function CatalogJobsScreen() {
   // Bulk delete job mutation
   const bulkDeleteMutation = useMutation({
     mutationFn: async (jobIds: string[]) => {
-      const { error } = await supabase
-        .from('cataloging_jobs')
-        .delete()
-        .in('job_id', jobIds);
-      if (error) throw error;
+      // Get current user ID for the RPC calls
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Delete each job using the secure RPC function
+      const deletePromises = jobIds.map(async (jobId) => {
+        const { data, error } = await supabase.rpc('delete_cataloging_job_secure', {
+          p_job_id: jobId,
+          p_user_id: user.id
+        });
+        
+        if (error) {
+          console.error(`Failed to delete job ${jobId}:`, error);
+          throw new Error(`Failed to delete job ${jobId}: ${error.message}`);
+        }
+        
+        if (data !== true) {
+          throw new Error(`Failed to delete job ${jobId}: User may not have permission.`);
+        }
+        
+        return jobId;
+      });
+      
+      // Wait for all deletions to complete
+      const deletedJobIds = await Promise.all(deletePromises);
+      console.log('✅ Bulk delete successful for jobs:', deletedJobIds);
+      return deletedJobIds;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['catalog-jobs'] });
@@ -242,38 +349,210 @@ export default function CatalogJobsScreen() {
   // Cancel and retry mutation
   const cancelAndRetryMutation = useMutation({
     mutationFn: async (jobId: string) => {
+      console.log('🔄 Cancel and retry mutation started for job:', jobId);
+      
       // First get the job data
+      console.log('📖 Fetching job data...');
       const { data: job, error: fetchError } = await supabase
         .from('cataloging_jobs')
         .select('image_urls')
-        .eq('job_id', jobId)
+        .eq('job_id', jobId as any)
         .single();
       
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        console.error('❌ Failed to fetch job data:', fetchError);
+        throw fetchError;
+      }
+      console.log('✅ Job data fetched:', job);
       
-      // Delete the existing job
-      const { error: deleteError } = await supabase
-        .from('cataloging_jobs')
-        .delete()
-        .eq('job_id', jobId);
+      // Delete the existing job using secure RPC function
+      console.log('🗑️ Deleting existing job...');
       
-      if (deleteError) throw deleteError;
+      // Get current user ID for the RPC call
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      const { data, error: deleteError } = await supabase.rpc('delete_cataloging_job_secure', {
+        p_job_id: jobId,
+        p_user_id: user.id
+      });
+      
+      if (deleteError) {
+        console.error('❌ Failed to delete job:', deleteError);
+        throw deleteError;
+      }
+      
+      if (data === true) {
+        console.log('✅ Job deleted successfully');
+      } else {
+        console.error('❌ Job deletion failed - RPC returned false');
+        throw new Error('Job deletion failed: User may not have permission to delete this job.');
+      }
       
       // Create a new job with the same image URLs
-      const { data: newJob, error: createError } = await supabase
+      console.log('🆕 Creating new job...');
+      const { data: newJobId, error: createError } = await supabase
         .rpc('create_cataloging_job', {
-          image_urls_payload: job.image_urls
+          image_urls_payload: (job as any).image_urls
         });
         
-      if (createError) throw createError;
-      return newJob;
+      if (createError) {
+        console.error('❌ Failed to create new job:', createError);
+        throw createError;
+      }
+      console.log('✅ New job created with ID:', newJobId);
+
+      // Now trigger the Edge Function API to actually process the job
+      console.log('🚀 Triggering Edge Function API...');
+      const edgeFunctionPayload = { jobId: newJobId };
+      const API_ENDPOINT = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-cataloging-job`;
+      const session = await supabase.auth.getSession();
+      const token = session?.data?.session?.access_token;
+
+      if (!token) {
+        console.error('❌ No authentication token found');
+        throw new Error('Authentication token not found');
+      }
+
+      // Call Edge Function API to trigger processing
+      const response = await fetch(API_ENDPOINT, { 
+        method: 'POST', 
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(edgeFunctionPayload)
+      });
+
+      if (!response.ok) {
+        console.error('❌ Edge Function API failed:', response.status, response.statusText);
+        throw new Error(`Edge Function API failed: ${response.status} ${response.statusText}`);
+      }
+      console.log('✅ Edge Function API call successful');
+
+      return newJobId;
     },
     onSuccess: () => {
+      console.log('🎉 Cancel and retry mutation successful, refreshing data...');
+      
+      // Force invalidate and refetch the catalog jobs
       queryClient.invalidateQueries({ queryKey: ['catalog-jobs'] });
-      Alert.alert('Success', 'Job has been cancelled and a new one created. Processing will begin shortly.');
+      
+      // Also force a manual refetch to ensure UI updates immediately
+      setTimeout(() => {
+        console.log('🔄 Force refetch after 500ms delay');
+        refetch();
+      }, 500);
+      
+      // Show success snackbar instead of alert
+      showSnackbar('success', 'Job retried successfully! Processing will begin shortly.', {
+        duration: 4000
+      });
     },
     onError: (error: any) => {
-      Alert.alert('Error', `Failed to cancel and retry job: ${error.message}`);
+      console.error('❌ Cancel and retry mutation failed:', error);
+      showSnackbar('error', `Failed to retry job: ${error.message}`, {
+        duration: 6000,
+        action: {
+          label: 'Dismiss',
+          onPress: () => {}, // Just dismiss the snackbar
+          accessibilityHint: 'Dismiss error message'
+        }
+      });
+    }
+  });
+
+  // Reprocess completed job mutation (for completed jobs that user wants to retry)
+  const reprocessJobMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      console.log('🔄 Reprocess job mutation started for job:', jobId);
+      
+      // Get the job data
+      console.log('📖 Fetching job data...');
+      const { data: job, error: fetchError } = await supabase
+        .from('cataloging_jobs')
+        .select('image_urls')
+        .eq('job_id', jobId as any)
+        .single();
+      
+      if (fetchError || !job) {
+        console.error('❌ Failed to fetch job data:', fetchError);
+        throw new Error(`Failed to fetch job details: ${fetchError?.message || 'Job not found'}`);
+      }
+      console.log('✅ Job data fetched:', job);
+      
+      // Create a new job with the same image URLs (don't delete the original)
+      console.log('🆕 Creating new job for reprocessing...');
+      const { data: newJobId, error: createError } = await supabase
+        .rpc('create_cataloging_job', {
+          image_urls_payload: (job as any).image_urls
+        });
+        
+      if (createError) {
+        console.error('❌ Failed to create new job:', createError);
+        throw createError;
+      }
+      console.log('✅ New job created with ID:', newJobId);
+
+      // Trigger the Edge Function API to process the new job
+      console.log('🚀 Triggering Edge Function API for reprocessing...');
+      const edgeFunctionPayload = { jobId: newJobId };
+      const API_ENDPOINT = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-cataloging-job`;
+      const session = await supabase.auth.getSession();
+      const token = session?.data?.session?.access_token;
+
+      if (!token) {
+        console.error('❌ No authentication token found');
+        throw new Error('Authentication token not found');
+      }
+
+      // Call Edge Function API to trigger processing
+      const response = await fetch(API_ENDPOINT, { 
+        method: 'POST', 
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(edgeFunctionPayload)
+      });
+
+      if (!response.ok) {
+        console.error('❌ Edge Function API failed:', response.status, response.statusText);
+        throw new Error(`Edge Function API failed: ${response.status} ${response.statusText}`);
+      }
+      console.log('✅ Edge Function API call successful for reprocessing');
+
+      return newJobId;
+    },
+    onSuccess: () => {
+      console.log('🎉 Reprocess job mutation successful, refreshing data...');
+      
+      // Force invalidate and refetch the catalog jobs
+      queryClient.invalidateQueries({ queryKey: ['catalog-jobs'] });
+      
+      // Also force a manual refetch to ensure UI updates immediately
+      setTimeout(() => {
+        console.log('🔄 Force refetch after 500ms delay');
+        refetch();
+      }, 500);
+      
+      // Show success snackbar
+      showSnackbar('success', 'Job reprocessing started! A new job has been created.', {
+        duration: 4000
+      });
+    },
+    onError: (error: any) => {
+      console.error('❌ Reprocess job mutation failed:', error);
+      showSnackbar('error', `Failed to reprocess job: ${error.message}`, {
+        duration: 6000,
+        action: {
+          label: 'Dismiss',
+          onPress: () => {},
+          accessibilityHint: 'Dismiss error message'
+        }
+      });
     }
   });
 
@@ -281,34 +560,85 @@ export default function CatalogJobsScreen() {
   const processedJobs = useMemo(() => {
     if (!jobs) return [];
     
-    let filtered = jobs;
-    if (filterBy !== 'all') {
-      filtered = jobs.filter(job => job.status === filterBy);
+    let filtered = jobs as CatalogJob[];
+    
+    // Apply status filter
+    if (filterBy === 'needs-review') {
+      // Show completed jobs with medium or low confidence
+      filtered = (jobs as CatalogJob[]).filter((job: CatalogJob) => {
+        if (job.status === 'completed' && job.extracted_data) {
+          const confidence = calculateOverallConfidence(job.extracted_data as any);
+          return confidence === 'medium' || confidence === 'low';
+        }
+        return false;
+      });
+    } else if (filterBy !== 'all') {
+      filtered = (jobs as CatalogJob[]).filter((job: CatalogJob) => job.status === filterBy);
     }
     
-    const sorted = [...filtered].sort((a, b) => {
+    // Apply confidence filter
+    if (confidenceFilter !== 'all') {
+      filtered = filtered.filter((job: CatalogJob) => {
+        if (job.status === 'completed' && job.extracted_data) {
+          const confidence = calculateOverallConfidence(job.extracted_data as any);
+          return confidence === confidenceFilter;
+        }
+        // For non-completed jobs, only show in 'high' confidence filter (legacy behavior)
+        return confidenceFilter === 'high';
+      });
+    }
+    
+    const sorted = [...filtered].sort((a: CatalogJob, b: CatalogJob) => {
       switch (sortBy) {
         case 'date-asc':
           return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         case 'date-desc':
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         case 'status':
-          const statusOrder = { 'processing': 0, 'pending': 1, 'failed': 2, 'completed': 3 };
-          return statusOrder[a.status] - statusOrder[b.status];
+          const statusOrder: Record<string, number> = { 'processing': 0, 'pending': 1, 'failed': 2, 'completed': 3 };
+          return (statusOrder[a.status] || 999) - (statusOrder[b.status] || 999);
         default:
           return 0;
       }
     });
     
     return sorted;
-  }, [jobs, sortBy, filterBy]);
+  }, [jobs, sortBy, filterBy, confidenceFilter]);
 
   const handleDelete = (jobId: string) => {
     deleteMutation.mutate(jobId);
   };
 
   const handleCancelAndRetry = (jobId: string) => {
+    // Prevent double execution
+    if (cancelAndRetryMutation.isPending) {
+      console.log('Cancel and retry already in progress, ignoring duplicate call');
+      return;
+    }
+    console.log('Starting cancel and retry for job:', jobId);
+    
+    // Show snackbar to indicate retry is starting
+    showSnackbar('info', 'Retrying cataloging job...', {
+      duration: 3000 // Show for 3 seconds
+    });
+    
     cancelAndRetryMutation.mutate(jobId);
+  };
+
+  const handleReprocess = (jobId: string) => {
+    // Prevent double execution
+    if (reprocessJobMutation.isPending) {
+      console.log('Reprocess already in progress, ignoring duplicate call');
+      return;
+    }
+    console.log('Starting reprocess for job:', jobId);
+    
+    // Show snackbar to indicate reprocess is starting
+    showSnackbar('info', 'Reprocessing cataloging job...', {
+      duration: 3000 // Show for 3 seconds
+    });
+    
+    reprocessJobMutation.mutate(jobId);
   };
 
   const handleRefresh = async () => {
@@ -352,7 +682,7 @@ export default function CatalogJobsScreen() {
     );
   };
 
-  // Get deletable jobs for selection mode
+  // Get deletable jobs for selection mode (only pending and failed jobs can be deleted)
   const deletableJobs = processedJobs.filter(job => job.status === 'pending' || job.status === 'failed');
 
   const renderHeader = () => (
@@ -419,7 +749,7 @@ export default function CatalogJobsScreen() {
         </View>
       );
     }
-    if (!jobs || jobs.length === 0) {
+    if (!jobs || (jobs as CatalogJob[]).length === 0) {
       return (
         <View style={styles.centered}>
           <Text style={styles.emptyText}>No pending catalog jobs</Text>
@@ -448,6 +778,7 @@ export default function CatalogJobsScreen() {
             item={item} 
             onDelete={handleDelete}
             onCancelAndRetry={handleCancelAndRetry}
+            onReprocess={handleReprocess}
             isSelectionMode={isSelectionMode}
             isSelected={selectedJobs.has(item.job_id)}
             onToggleSelect={handleToggleSelect}
@@ -513,6 +844,7 @@ export default function CatalogJobsScreen() {
               <Text style={styles.sectionTitle}>Filter By Status</Text>
               {[
                 { key: 'all', label: 'All Jobs' },
+                { key: 'needs-review', label: 'Needs Review' },
                 { key: 'pending', label: 'Pending' },
                 { key: 'processing', label: 'Processing' },
                 { key: 'completed', label: 'Completed' },
@@ -525,6 +857,25 @@ export default function CatalogJobsScreen() {
                 >
                   <Text style={styles.optionText}>{option.label}</Text>
                   {filterBy === option.key && <CheckCircle2 size={20} color="#1FB1AB" />}
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Filter By Confidence</Text>
+              {[
+                { key: 'all', label: 'All Confidence Levels' },
+                { key: 'high', label: 'High Confidence' },
+                { key: 'medium', label: 'Medium Confidence' },
+                { key: 'low', label: 'Low Confidence' }
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.key}
+                  style={styles.optionRow}
+                  onPress={() => setConfidenceFilter(option.key as ConfidenceFilterOption)}
+                >
+                  <Text style={styles.optionText}>{option.label}</Text>
+                  {confidenceFilter === option.key && <CheckCircle2 size={20} color="#1FB1AB" />}
                 </TouchableOpacity>
               ))}
             </View>
@@ -691,6 +1042,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#22C55E',
     marginLeft: 6,
+  },
+  mediumConfidenceText: {
+    color: '#F59E0B', // Amber color for medium confidence
+  },
+  lowConfidenceText: {
+    color: '#EF4444', // Red color for low confidence
   },
   modalContainer: {
     flex: 1,

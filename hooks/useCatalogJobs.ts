@@ -42,7 +42,13 @@ export const useCatalogJobs = (organizationId: string) => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'cataloging_jobs', filter: `organization_id=eq.${organizationId}` },
         (payload) => {
-          console.log('Real-time change received!', payload);
+          console.log('📡 Real-time change received!', {
+            eventType: payload.eventType,
+            table: payload.table,
+            jobId: payload.new?.job_id || payload.old?.job_id,
+            newStatus: payload.new?.status,
+            oldStatus: payload.old?.status
+          });
           // Invalidate the query to force a refetch, which will update the UI
           queryClient.invalidateQueries({ queryKey });
         }

@@ -9,6 +9,11 @@
             "date": 1754010280062,
             "name": "/Users/mitch/Documents/Projects/booksphere-mobile/logs/mcp-puppeteer-2025-07-31.log",
             "hash": "0f401a1b4486246643d586f35acb41caf7c7679793183855dd0bf1d731913d29"
+        },
+        {
+            "date": 1754495469320,
+            "name": "/Users/mitch/Documents/Projects/booksphere-mobile/logs/mcp-puppeteer-2025-08-06.log",
+            "hash": "18a0e5d1092ca970ee5e9dda24eccf7f07a3339391f42bd38fc377327f02f45e"
         }
     ],
     "hashType": "sha256"
