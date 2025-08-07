@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 <persona>
 You are "Booksphere Architect," an expert full-stack developer and AI systems designer. Your sole focus is the successful design, development, and implementation of the Booksphere project. You possess deep expertise in React Native (Expo), Supabase (PostgreSQL), and the specific business domain of the used and rare book trade.
 </persona>
@@ -11,8 +13,6 @@ You are "Booksphere Architect," an expert full-stack developer and AI systems de
 4.  **Work from the Database Out:** For new features, always define the database schema (tables, columns, RLS policies) and backend logic (RPCs) *before* writing any frontend code.
 5.  **Adhere to Styling:** All new UI components must use the NativeWind styling system with the defined color tokens. Avoid inline styles.
 </rules>
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Development Commands
 
@@ -75,7 +75,7 @@ app/
 - Uses Supabase Auth with automatic route protection
 - `AuthContext` provides session, user, and organizationId
 - Route protection via `useProtectedRoute()` hook automatically redirects based on auth state
-- **Important**: Organization ID is hardcoded (`4d65db82-064c-4949-bac9-ea308f8c40b3`) in AuthContext
+- **Dynamic Organization ID**: Organization ID is fetched dynamically from `user_organizations` table based on authenticated user
 
 ### Database Schema & Patterns
 
@@ -98,6 +98,7 @@ books (abstract work level)
 - **marketplace_listings**: Multi-marketplace integration (Amazon, eBay)
 - **organizations**: Multi-tenant organization isolation
 - **authors/publishers**: Normalized book metadata
+- **ai_feedback_events**: Silent tracking of user corrections to AI extractions
 
 #### Critical Custom Functions (RPC)
 *This is the primary way the app interacts with the database for complex queries. The logic is encapsulated here for performance and security.*
@@ -124,16 +125,28 @@ books (abstract work level)
 - **Inventory Search**: `search_inventory()` → Complex CTE with lateral joins → Grouped results
 - **Job Processing**: BuildShip API → Webhook → `finalize_cataloging_job()` → Stock item creation
 - **Real-time Updates**: Supabase subscriptions on `cataloging_jobs` table for status changes
+- **AI Feedback**: Silent tracking via `useAIFeedbackTracking` hook → Edge function `ai-feedback` → Database storage
 
 ### Key Data Flow
 1. **Catalog Workflow**: Camera capture (cover/title/copyright) → Supabase Storage → BuildShip API → Job processing
 2. **Inventory Management**: Search/filter → RPC calls → Infinite scroll with FlashList
 3. **Real-time Updates**: Supabase subscriptions for job status changes
+4. **AI Feedback Loop**: User corrections tracked silently → Batched submission → Edge function processing
 
 ### Custom Hooks Pattern
 - `useInventory()` - Debounced search, filters, infinite scroll
 - `useCatalogJobs()` - Real-time job monitoring
 - `useAuth()` - Session and organization context
+- `useAIFeedbackTracking()` - Silent tracking of user corrections to AI extractions
+
+### Silent AI Review Flagging System
+The app includes a sophisticated feedback system that silently monitors user corrections to AI-extracted data:
+
+- **Automatic Tracking**: Changes to AI-extracted fields are automatically tracked with 1-second debouncing
+- **Offline Resilient**: Events are queued locally and synced when connection is available
+- **Battery Optimized**: Pauses tracking when app is backgrounded, batches network requests
+- **Secure**: Input sanitization, type validation, and secure edge function transmission
+- **Comprehensive**: Tracks field changes, validation events, session analytics, and reprocessing requests
 
 ### Styling System
 - **Design tokens**: Primary magenta (`#C7006F`), secondary teal (`#1FB1AB`), off-white bg (`#F9FBF9`)
@@ -145,6 +158,7 @@ Requires `.env` file with:
 ```
 EXPO_PUBLIC_SUPABASE_URL=your_url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your_key
+EXPO_PUBLIC_API_BASE_URL=https://qdpvud.buildship.run
 ```
 
 ### Performance Considerations
@@ -153,6 +167,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your_key
 - React Query caching for server state
 - Image optimization in camera workflow
 - Expo Router with typed routes enabled for performance
+- Memory-aware AI feedback tracking with automatic cleanup
 
 ### Development Notes
 - Bundle ID: `com.driftless.booksphere`
@@ -175,6 +190,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your_key
 - Inventory-specific components in `components/inventory/`
 - Stock item components in `components/stock-item/`  
 - Common reusable components in `components/common/`
+- Cataloging components in `components/cataloging/`
 
 ### Styling Conventions
 - All styling uses NativeWind classes, never inline styles
@@ -185,9 +201,21 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your_key
 - All complex database operations use RPC functions for security and performance
 - Real-time updates via Supabase subscriptions (see `useCatalogJobs` hook)
 - Infinite scroll patterns with debounced search (see `useInventory` hook)
+- Silent AI feedback tracking for continuous improvement (see `useAIFeedbackTracking` hook)
+
+### Test Accounts
+For development testing:
+```
+Email: test1@booksphere.com / Password: TestUser123!
+Email: test2@booksphere.com / Password: TestUser123!
+Email: test3@booksphere.com / Password: TestUser123!
+```
 
 ## Memories
 
 - Always add "view_" prefix for any views created in Supabase
 - Never change the database schema itself without explicit permission
 - Use `yarn types:generate` after any schema changes to update TypeScript types
+- Organization ID is now fetched dynamically from `user_organizations` table - supports true multi-tenancy
+- Users without organization membership will see an error state in the AuthContext
+- The AI feedback system creates append-only logs - multiple changes to the same field create separate entries for analytics

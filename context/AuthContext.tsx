@@ -9,6 +9,8 @@ interface AuthContextType {
   user: User | null;
   organizationId: string | null;
   isLoading: boolean;
+  isLoadingOrganization: boolean;
+  organizationError: string | null;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -16,6 +18,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   organizationId: null,
   isLoading: true,
+  isLoadingOrganization: false,
+  organizationError: null,
 });
 
 // This hook can be used to access the user info.
@@ -45,11 +49,61 @@ function useProtectedRoute(session: Session | null) {
   }, [session, segments, router]); // Re-run the effect when the session or segments change.
 }
 
-const ORGANIZATION_ID = '4d65db82-064c-4949-bac9-ea308f8c40b3';
+// Function to fetch user's organization from the database
+const fetchUserOrganization = async (userId: string): Promise<string | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('user_organizations')
+      .select('organizations_id')
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching user organization:', error);
+      return null;
+    }
+
+    return data?.organizations_id || null;
+  } catch (error) {
+    console.error('Error in fetchUserOrganization:', error);
+    return null;
+  }
+};
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [isLoadingOrganization, setIsLoadingOrganization] = useState(false);
+  const [organizationError, setOrganizationError] = useState<string | null>(null);
+
+  // Effect to handle organization fetching when user changes
+  useEffect(() => {
+    const loadOrganization = async (user: User) => {
+      setIsLoadingOrganization(true);
+      setOrganizationError(null);
+      
+      const orgId = await fetchUserOrganization(user.id);
+      
+      if (orgId) {
+        setOrganizationId(orgId);
+      } else {
+        setOrganizationError('No organization found for user');
+        setOrganizationId(null);
+      }
+      
+      setIsLoadingOrganization(false);
+    };
+
+    if (session?.user) {
+      loadOrganization(session.user);
+    } else {
+      // Clear organization data when user logs out
+      setOrganizationId(null);
+      setOrganizationError(null);
+      setIsLoadingOrganization(false);
+    }
+  }, [session?.user?.id]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -75,8 +129,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const value = {
     session,
     user: session?.user ?? null,
-    organizationId: session?.user ? ORGANIZATION_ID : null,
+    organizationId,
     isLoading,
+    isLoadingOrganization,
+    organizationError,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
