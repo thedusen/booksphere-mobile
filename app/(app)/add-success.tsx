@@ -4,7 +4,7 @@ import { BookData } from '@/types/api';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { CheckCircle2 } from 'lucide-react-native';
 import React from 'react';
-import { Image, SafeAreaView, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
 export default function AddSuccessScreen() {
   const router = useRouter();
@@ -43,49 +43,48 @@ export default function AddSuccessScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background justify-center items-center p-6">
+    <SafeAreaView className="flex-1 bg-background">
       <Stack.Screen options={{ headerShown: false }} />
+      
+      <ScrollView 
+        contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View className="items-center">
+          <CheckCircle2 size={80} color="#22C55E" />
+          <Text className="text-3xl font-bold text-text mt-6">Success!</Text>
+          <Text className="text-lg text-muted-foreground mt-2 text-center">
+            The book has been added to your inventory.
+          </Text>
+        </View>
 
-      <View className="items-center">
-        <CheckCircle2 size={80} color="#22C55E" />
-        <Text className="text-3xl font-bold text-text mt-6">Success!</Text>
-        <Text className="text-lg text-muted-foreground mt-2 text-center">
-          The book has been added to your inventory.
-        </Text>
-      </View>
+        <View className="my-12 items-center">
+          <Text className="text-text text-xl font-bold text-center mt-4">{bookData.title}</Text>
+          <Text className="text-muted-foreground text-base mt-1 text-center">{bookData.authors?.join(', ')}</Text>
+        </View>
 
-      <View className="my-12 items-center">
-        <Image
-          source={{ uri: bookData.cover_image_url }}
-          className="w-32 h-48 rounded-lg bg-input"
-          resizeMode="cover"
-        />
-        <Text className="text-text text-xl font-bold text-center mt-4">{bookData.title}</Text>
-        <Text className="text-muted-foreground text-base mt-1">{bookData.authors?.join(', ')}</Text>
-      </View>
-
-      {/* Container for all action buttons at the bottom of the screen */}
-      <View className="w-full px-6 absolute bottom-10">
-        <TouchableOpacity
-          onPress={handleScanNext}
-          className="bg-primary p-4 rounded-lg w-full mb-4"
-        >
-          <Text className="text-white text-lg font-bold text-center">Scan Next Book</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={handleViewEdit}
-          className="bg-secondary p-4 rounded-lg w-full mb-4"
-        >
-          <Text className="text-white text-lg font-bold text-center">View/Edit Entry</Text>
-        </TouchableOpacity>
-        {/* NEW: Back to Dashboard button */}
-        <TouchableOpacity
-          onPress={handleGoToDashboard}
-          className="bg-input border border-border p-4 rounded-lg w-full"
-        >
-          <Text className="text-text font-bold text-center">Back to Dashboard</Text>
-        </TouchableOpacity>
-      </View>
+        {/* Container for all action buttons */}
+        <View className="w-full mt-8">
+          <TouchableOpacity
+            onPress={handleScanNext}
+            className="bg-primary p-4 rounded-lg w-full mb-4"
+          >
+            <Text className="text-white text-lg font-bold text-center">Scan Next Book</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleViewEdit}
+            className="bg-secondary p-4 rounded-lg w-full mb-4"
+          >
+            <Text className="text-white text-lg font-bold text-center">View/Edit Entry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleGoToDashboard}
+            className="bg-input border border-border p-4 rounded-lg w-full"
+          >
+            <Text className="text-text font-bold text-center">Back to Dashboard</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
