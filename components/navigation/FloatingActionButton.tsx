@@ -63,7 +63,7 @@ export default function FloatingActionButton({ style }: FloatingActionButtonProp
         style={[
           {
             position: 'absolute',
-            bottom: Platform.OS === 'ios' ? 49 : 39, // Overlap bottom nav - center at tab bar top edge
+            bottom: Platform.OS === 'ios' ? 65 : 55, // Pushed down by 12px
             alignSelf: 'center',
             zIndex: 1000,
             transform: [{ scale: scaleAnim }],

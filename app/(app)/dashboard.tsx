@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { useCatalogJobs } from '@/hooks/useCatalogJobs';
 import { useJobStatusSnackbars } from '@/hooks/useJobStatusSnackbars';
-import { BookCheck, Camera, Library, LogOut, LucideIcon, ScanLine, Type } from 'lucide-react-native';
+import { BookCheck, Camera, Library, LucideIcon, ScanLine, Type } from 'lucide-react-native';
 import { styled } from 'nativewind';
 import React, { useState } from 'react';
 import * as Haptics from 'expo-haptics';
@@ -102,7 +102,6 @@ const ManagementButton = ({
   isLoading = false,
   badge,
   jobStatus,
-  matchHeight = false,
 }: {
   label: string;
   onPress: () => void;
@@ -116,70 +115,48 @@ const ManagementButton = ({
     completed: number;
     failed: number;
   };
-  matchHeight?: boolean;
 }) => {
-  // Both buttons use h-20 to match when one has jobStatus
-  const buttonHeight = jobStatus || matchHeight ? 'h-20' : 'h-16';
-  
   return (
     <TouchableOpacity
       onPress={onPress}
       disabled={isLoading}
-      className={`flex-1 mx-2 bg-card border border-border rounded-2xl p-3 ${isLoading ? 'opacity-50' : ''} ${buttonHeight}`}
+      className={`flex-1 mx-2 bg-card border border-border rounded-2xl px-3 py-3 min-h-14 ${isLoading ? 'opacity-50' : ''}`}
       activeOpacity={0.7}
       accessibilityLabel={`${label}${badge ? ` (${badge.count} items)` : ''}`}
       accessibilityRole="button"
       accessibilityHint={`Navigate to ${label.toLowerCase()} screen`}
       accessibilityState={{ disabled: isLoading }}
     >
-      <View className="flex-1 justify-center items-center">
-        <View className="items-center">
-          <Text className="text-text text-sm font-semibold text-center">{label}</Text>
+      <View className="justify-center items-center">
+        <View className="flex-row items-center justify-center">
+          <Text className="text-text text-sm font-semibold">{label}</Text>
           
-          {/* Rich job status for Catalog Jobs */}
+          {/* Rich job status for Catalog Jobs - inline with text */}
           {jobStatus && (
-            <View className="flex-row justify-center items-center space-x-3 mt-2">
-              {jobStatus.processing > 0 && (
-                <View className="flex-row items-center">
-                  <View className="w-2 h-2 bg-amber-500 rounded-full mr-1" />
-                  <Text className="text-xs text-amber-600 font-medium">{jobStatus.processing}</Text>
-                </View>
-              )}
-              {jobStatus.completed > 0 && (
-                <View className="flex-row items-center">
-                  <View className="w-2 h-2 bg-secondary rounded-full mr-1" />
-                  <Text className="text-xs text-secondary font-medium">{jobStatus.completed}</Text>
-                </View>
-              )}
-              {jobStatus.failed > 0 && (
-                <View className="flex-row items-center">
-                  <View className="w-2 h-2 bg-red-500 rounded-full mr-1" />
-                  <Text className="text-xs text-red-600 font-medium">{jobStatus.failed}</Text>
-                </View>
-              )}
-              {jobStatus.processing === 0 && jobStatus.completed === 0 && jobStatus.failed === 0 && (
-                <Text className="text-xs text-muted-foreground">All clear</Text>
-              )}
+            <View className="flex-row items-center ml-2">
+              {(jobStatus.processing > 0 || jobStatus.completed > 0 || jobStatus.failed > 0) ? (
+                <>
+                  {jobStatus.processing > 0 && (
+                    <View className="flex-row items-center mr-2">
+                      <View className="w-2 h-2 bg-amber-500 rounded-full mr-1" />
+                      <Text className="text-xs text-amber-600 font-medium">{jobStatus.processing}</Text>
+                    </View>
+                  )}
+                  {jobStatus.completed > 0 && (
+                    <View className="flex-row items-center mr-2">
+                      <View className="w-2 h-2 bg-secondary rounded-full mr-1" />
+                      <Text className="text-xs text-secondary font-medium">{jobStatus.completed}</Text>
+                    </View>
+                  )}
+                  {jobStatus.failed > 0 && (
+                    <View className="flex-row items-center">
+                      <View className="w-2 h-2 bg-red-500 rounded-full mr-1" />
+                      <Text className="text-xs text-red-600 font-medium">{jobStatus.failed}</Text>
+                    </View>
+                  )}
+                </>
+              ) : null}
             </View>
-          )}
-          
-          {/* Standard badge for other buttons */}
-          {badge && badge.count > 0 && !jobStatus && (
-            <View className="flex-row items-center justify-center mt-2">
-              <View className={`w-2 h-2 rounded-full mr-1 ${
-                badge.color === 'primary' ? 'bg-primary' : 
-                badge.color === 'secondary' ? 'bg-secondary' : 
-                'bg-amber-500'
-              }`} />
-              <Text className="text-xs text-muted-foreground">
-                {badge.count} active
-              </Text>
-            </View>
-          )}
-          
-          {/* Invisible spacer to maintain consistent height for matchHeight buttons */}
-          {matchHeight && !badge && !jobStatus && (
-            <Text className="text-xs text-muted-foreground opacity-0 mt-2">All clear</Text>
           )}
         </View>
       </View>
@@ -219,27 +196,10 @@ export default function DashboardScreen() {
     setTimeout(() => setIsLoading(null), 100);
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    // The AuthContext listener will handle the redirect automatically
-  };
 
   return (
     <SafeAreaView className="flex-1 bg-background">
       <View className="flex-1 p-6 pb-24">
-        {/* Header - Smaller Title */}
-        <View className="flex-row justify-between items-center mb-6">
-          <Text className="text-xl font-bold text-text">Booksphere</Text>
-          <TouchableOpacity 
-            onPress={handleSignOut} 
-            className="p-2"
-            accessibilityLabel="Sign out"
-            accessibilityRole="button"
-            accessibilityHint="Sign out of your account"
-          >
-            <LogOut size={24} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
 
         {/* Management at Top - Less Frequent Actions */}
         <View className="mb-6">
@@ -248,7 +208,6 @@ export default function DashboardScreen() {
               label="Inventory"
               onPress={() => handleNavigate('/inventory', 'inventory')}
               isLoading={isLoading === 'inventory'}
-              matchHeight={true}
             />
             <ManagementButton
               label="Catalog Jobs"

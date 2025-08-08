@@ -52,22 +52,31 @@ export default function BottomTabBar() {
 
   return (
     <StyledView 
-      className="absolute bottom-0 left-0 right-0 bg-background border-t border-border"
+      className="absolute left-0 right-0 bg-background border-t border-border"
       style={{
-        paddingBottom: insets.bottom || 8,
-        height: (Platform.OS === 'ios' ? 88 : 68) + (insets.bottom || 0),
+        bottom: 0, // Back to normal bottom position
+        paddingBottom: insets.bottom || 8, // Normal padding
+        height: (Platform.OS === 'ios' ? 60 : 50) + (insets.bottom || 0), // Reduced background height
       }}
     >
       <StyledView className="flex-row justify-around items-center pt-2">
-        {tabs.map((tab) => {
+        {tabs.map((tab, index) => {
           const Icon = tab.icon;
           const active = isActive(tab.route);
+          
+          // Add extra spacing around the FAB position (between index 1 and 2)
+          const isBeforeFAB = index === 1;
+          const isAfterFAB = index === 2;
           
           return (
             <StyledTouchableOpacity
               key={tab.name}
               onPress={() => router.push(tab.route as any)}
               className="flex-1 items-center justify-center py-2"
+              style={{
+                marginRight: isBeforeFAB ? 28 : 0, // Add space before FAB
+                marginLeft: isAfterFAB ? 28 : 0,  // Add space after FAB
+              }}
               accessibilityLabel={tab.label}
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
