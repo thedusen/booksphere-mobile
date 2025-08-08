@@ -16,10 +16,17 @@ export const getJobType = (job: any): JobType => {
   
   if (!imageUrls) return 'ai'; // Fallback for malformed data
   
-  // Check for ISBN jobs
+  // Check for explicit job_type field FIRST (most reliable)
+  if (imageUrls.job_type === 'isbn_scan') return 'isbn_scan';
+  if (imageUrls.job_type === 'isbn_manual') return 'isbn_manual';
+  if (imageUrls.job_type === 'ai') return 'ai';
+  
+  // Fallback: Check for ISBN jobs by structure
   if (imageUrls.isbn) {
     if (imageUrls.method === 'scan') return 'isbn_scan';
     if (imageUrls.method === 'manual') return 'isbn_manual';
+    // If has ISBN but no method, assume scan
+    return 'isbn_scan';
   }
   
   // Check for AI jobs (has actual image URLs)

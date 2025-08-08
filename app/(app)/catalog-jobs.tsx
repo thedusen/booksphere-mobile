@@ -155,8 +155,8 @@ const JobStatusRow = ({
         );
     };
 
-    const canDelete = item.status === 'pending' || item.status === 'failed' || item.status === 'completed'; // Allow deletion of pending, failed, and completed jobs
-    const canShowActions = item.status === 'pending' || item.status === 'failed' || item.status === 'completed'; // Show context menu for jobs that have actions available
+    const canDelete = item.status === 'pending' || item.status === 'failed' || item.status === 'completed' || item.status === 'processing'; // Allow deletion of all jobs including stuck processing ones
+    const canShowActions = item.status === 'pending' || item.status === 'failed' || item.status === 'completed' || item.status === 'processing'; // Show context menu for all jobs
 
     // Get confidence/certainty-based styling
     const backgroundColorStyle = jobType === 'ai' && item.status === 'completed'
@@ -473,56 +473,109 @@ export default function CatalogJobsScreen() {
         const isbn = (job as any).image_urls.isbn;
         
         if (!isbn) {
+          // Mark job as failed if ISBN is missing
+          await supabase
+            .from('cataloging_jobs')
+            .update({ 
+              status: 'failed', 
+              error_message: 'ISBN not found in job data' 
+            })
+            .eq('job_id', newJobId);
           throw new Error('ISBN not found in job data');
         }
 
-        const bookData = await fetchBookDataByIsbn(isbn);
-        console.log('✅ Book data fetched successfully');
+        try {
+          const bookData = await fetchBookDataByIsbn(isbn);
+          console.log('✅ Book data fetched successfully');
 
-        // Update the job with the fetched data
-        console.log('📝 Updating job with book data...');
-        const { error: updateError } = await supabase
-          .from('cataloging_jobs')
-          .update({ 
-            extracted_data: bookData, 
-            status: 'completed' 
-          })
-          .eq('job_id', newJobId);
+          // Update the job with the fetched data
+          console.log('📝 Updating job with book data...');
+          const { error: updateError } = await supabase
+            .from('cataloging_jobs')
+            .update({ 
+              extracted_data: bookData, 
+              status: 'completed' 
+            })
+            .eq('job_id', newJobId);
 
-        if (updateError) {
-          console.error('❌ Failed to update job with book data:', updateError);
-          throw updateError;
+          if (updateError) {
+            console.error('❌ Failed to update job with book data:', updateError);
+            throw updateError;
+          }
+          console.log('✅ ISBN job processing completed successfully');
+        } catch (error: any) {
+          // Mark job as failed if API call or update fails
+          console.error('❌ ISBN job processing failed:', error);
+          await supabase
+            .from('cataloging_jobs')
+            .update({ 
+              status: 'failed', 
+              error_message: error.message || 'Failed to process ISBN' 
+            })
+            .eq('job_id', newJobId);
+          throw error;
         }
-        console.log('✅ ISBN job processing completed successfully');
 
       } else {
         // For AI jobs, trigger Edge Function API
         console.log('🚀 Triggering Edge Function API for AI job...');
-        const edgeFunctionPayload = { jobId: newJobId };
-        const API_ENDPOINT = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-cataloging-job`;
-        const session = await supabase.auth.getSession();
-        const token = session?.data?.session?.access_token;
+        
+        try {
+          const edgeFunctionPayload = { jobId: newJobId };
+          const API_ENDPOINT = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-cataloging-job`;
+          const session = await supabase.auth.getSession();
+          const token = session?.data?.session?.access_token;
 
-        if (!token) {
-          console.error('❌ No authentication token found');
-          throw new Error('Authentication token not found');
+          if (!token) {
+            console.error('❌ No authentication token found');
+            // Mark job as failed if no token
+            await supabase
+              .from('cataloging_jobs')
+              .update({ 
+                status: 'failed', 
+                error_message: 'Authentication token not found' 
+              })
+              .eq('job_id', newJobId);
+            throw new Error('Authentication token not found');
+          }
+
+          // Call Edge Function API to trigger processing
+          const response = await fetch(API_ENDPOINT, { 
+            method: 'POST', 
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(edgeFunctionPayload)
+          });
+
+          if (!response.ok) {
+            console.error('❌ Edge Function API failed:', response.status, response.statusText);
+            // Mark job as failed if Edge Function fails
+            await supabase
+              .from('cataloging_jobs')
+              .update({ 
+                status: 'failed', 
+                error_message: `Edge Function API failed: ${response.status} ${response.statusText}` 
+              })
+              .eq('job_id', newJobId);
+            throw new Error(`Edge Function API failed: ${response.status} ${response.statusText}`);
+          }
+          console.log('✅ Edge Function API call successful');
+        } catch (error: any) {
+          // If error wasn't already handled above, mark as failed
+          if (!error.message?.includes('Edge Function API failed') && !error.message?.includes('Authentication token')) {
+            console.error('❌ AI job processing failed:', error);
+            await supabase
+              .from('cataloging_jobs')
+              .update({ 
+                status: 'failed', 
+                error_message: error.message || 'Failed to process AI job' 
+              })
+              .eq('job_id', newJobId);
+          }
+          throw error;
         }
-
-        // Call Edge Function API to trigger processing
-        const response = await fetch(API_ENDPOINT, { 
-          method: 'POST', 
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(edgeFunctionPayload)
-        });
-
-        if (!response.ok) {
-          console.error('❌ Edge Function API failed:', response.status, response.statusText);
-          throw new Error(`Edge Function API failed: ${response.status} ${response.statusText}`);
-        }
-        console.log('✅ Edge Function API call successful');
       }
 
       return newJobId;
@@ -790,8 +843,8 @@ export default function CatalogJobsScreen() {
     );
   };
 
-  // Get deletable jobs for selection mode (pending, failed, and completed jobs can be deleted)
-  const deletableJobs = processedJobs.filter(job => job.status === 'pending' || job.status === 'failed' || job.status === 'completed');
+  // Get deletable jobs for selection mode (all jobs can be deleted including stuck processing ones)
+  const deletableJobs = processedJobs.filter(job => job.status === 'pending' || job.status === 'failed' || job.status === 'completed' || job.status === 'processing');
 
   const renderHeader = () => (
     <View style={styles.header}>
