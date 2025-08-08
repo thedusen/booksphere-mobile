@@ -274,6 +274,12 @@ const JobStatusRow = ({
                                 <Text style={styles.retryActionText}>Retry</Text>
                             </TouchableOpacity>
                         )}
+                        {item.status === 'processing' && (
+                            <TouchableOpacity style={styles.actionItem} onPress={handleCancelAndRetry}>
+                                <RotateCcw size={20} color="#1FB1AB" />
+                                <Text style={styles.retryActionText}>Cancel and Retry</Text>
+                            </TouchableOpacity>
+                        )}
                         {item.status === 'completed' && (
                             <TouchableOpacity style={styles.actionItem} onPress={handleReprocess}>
                                 <RotateCcw size={20} color="#1FB1AB" />
