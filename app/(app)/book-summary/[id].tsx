@@ -1,7 +1,7 @@
 // app/(app)/book-summary/[id].tsx
 import { FlashList } from "@shopify/flash-list";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Plus } from "lucide-react-native";
+import { ArrowLeft } from "lucide-react-native";
 import { styled } from "nativewind";
 import React, { useCallback } from "react";
 import {
@@ -43,10 +43,7 @@ export default function BookSummaryScreen() {
     router.push(`/stock-item/${item.stock_item_id}`);
   }, [router]);
 
-  const handleAddNew = useCallback(() => {
-    // Navigate to catalog screen with the book context
-    router.push('/catalog-new');
-  }, [router]);
+  // Removed handleAddNew - now using global FAB
 
   const renderStockItem = useCallback(({ item }: { item: StockItem }) => (
     <StockItemRow 
@@ -90,14 +87,6 @@ export default function BookSummaryScreen() {
       <Stack.Screen 
         options={{ 
           headerTitle: "Book Details",
-          headerLeft: () => (
-            <TouchableOpacity 
-              onPress={() => router.back()}
-              className="p-2 -ml-2"
-            >
-              <ArrowLeft size={24} color="#1FB1AB" />
-            </TouchableOpacity>
-          ),
         }} 
       />
 
@@ -176,15 +165,6 @@ export default function BookSummaryScreen() {
           </View>
         )}
       />
-
-      {/* Floating Action Button */}
-      <TouchableOpacity 
-        className="absolute bottom-6 right-6 w-14 h-14 bg-secondary rounded-full items-center justify-center shadow-lg elevation-8"
-        onPress={handleAddNew}
-        activeOpacity={0.8}
-      >
-        <Plus size={28} color="white" />
-      </TouchableOpacity>
     </SafeAreaView>
   );
 }

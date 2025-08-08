@@ -1,5 +1,5 @@
 // app/(app)/stock-item/[id].tsx
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { styled } from 'nativewind';
 import React, { useState } from 'react'; // Added useState
 import { ActivityIndicator, Alert, SafeAreaView as RNSafeAreaView, Text as RNText, TouchableOpacity as RNTouchableOpacity, View as RNView, ScrollView } from 'react-native';
@@ -105,6 +105,7 @@ const AttributesContent = ({ attributes }: { attributes: StockItemDetails['attri
 export default function StockItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { organizationId } = useAuth();
+  const router = useRouter();
   
   // NEW: State to control the modal visibility
   const [isEditModalVisible, setEditModalVisible] = useState(false);
@@ -136,7 +137,6 @@ export default function StockItemDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <Stack.Screen options={{ headerTitle: `Item Details`, headerBackTitle: "Inventory" }} />
       <ScrollView>
         <HeroSection data={stockItemData} onFlagPress={handleFlagPress} />
         

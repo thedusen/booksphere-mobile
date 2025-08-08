@@ -5,9 +5,9 @@ import { CatalogJob } from '@/hooks/useCatalogJobs';
 import { supabase } from '@/lib/supabase';
 import { getJobType, getJobDisplayInfo } from '@/utils/catalogJobs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { ChevronDown, ChevronRight, ChevronUp, Maximize, Minimize, Search, X } from 'lucide-react-native';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // Constants
@@ -404,6 +404,31 @@ export default function CatalogReviewScreen() {
     const [notes, setNotes] = useState('');
     const [contributors, setContributors] = useState<Contributor[]>([]);
 
+    // Handle back button for multi-step navigation
+    useFocusEffect(
+        useCallback(() => {
+            const handleBackPress = () => {
+                if (step === 1) {
+                    router.back(); // Exit wizard
+                    return true;
+                } else {
+                    setStep(step - 1); // Go to previous step
+                    return true;
+                }
+            };
+
+            // Override hardware back button on Android
+            const subscription = router.addListener?.('beforeRemove' as any, (e: any) => {
+                if (step > 1) {
+                    e.preventDefault();
+                    setStep(step - 1);
+                }
+            });
+
+            return () => subscription?.();
+        }, [step, router])
+    );
+
     // State for the form data, initialized by the AI's output
     const [formData, setFormData] = useState<any>(null);
 
@@ -622,12 +647,8 @@ export default function CatalogReviewScreen() {
             <Stack.Screen options={{ 
                 headerShown: true, 
                 headerTitle: displayInfo ? `${displayInfo.displayName} - Step ${step} of 3` : `Step ${step} of 3`,
-                headerBackTitle: "Cataloging Jobs",
-                headerLeft: () => (
-                    <TouchableOpacity onPress={() => step === 1 ? router.back() : setStep(step - 1)} className="p-2">
-                        <Text className="text-secondary text-base">{step === 1 ? 'Cancel' : 'Back'}</Text>
-                    </TouchableOpacity>
-                ), 
+                headerBackTitle: 'Back',
+                headerTintColor: '#007AFF',
             }} />
             <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }} keyboardVerticalOffset={90}>
                 <View className="flex-1 px-6 py-4">{renderStep()}</View>
