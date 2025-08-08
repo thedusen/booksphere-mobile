@@ -15,11 +15,30 @@ import { ActivityIndicator, Alert, FlatList, Image, Modal, RefreshControl, SafeA
 // ISBN API function (same as in review.tsx and scan.tsx)
 const fetchBookDataByIsbn = async (isbn: string): Promise<BookData> => {
   const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
-  const response = await fetch(`${baseUrl}/getEnrichedBookDataByIsbn?isbn=${isbn}`);
-  if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
-  const data: ApiResponse = await response.json();
-  if (data.jsonResult && data.jsonResult.bookData) return data.jsonResult.bookData;
-  throw new Error("Book data not found for this ISBN.");
+  console.log(`📚 Fetching book data for ISBN: ${isbn}`);
+  
+  try {
+    const response = await fetch(`${baseUrl}/getEnrichedBookDataByIsbn?isbn=${isbn}`);
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(`ISBN ${isbn} not found in database`);
+      } else if (response.status === 500) {
+        throw new Error(`Server error fetching ISBN ${isbn}. The book data service may be temporarily unavailable.`);
+      }
+      throw new Error(`API request failed with status ${response.status}`);
+    }
+    
+    const data: ApiResponse = await response.json();
+    if (data.jsonResult && data.jsonResult.bookData) {
+      console.log(`✅ Book data found for ISBN ${isbn}`);
+      return data.jsonResult.bookData;
+    }
+    throw new Error(`No book data available for ISBN ${isbn}`);
+  } catch (error: any) {
+    console.error(`❌ Failed to fetch ISBN ${isbn}:`, error.message);
+    throw error;
+  }
 };
 
 const JobTypeBadge = ({ job }: { job: CatalogJob }) => {
@@ -605,14 +624,42 @@ export default function CatalogJobsScreen() {
     },
     onError: (error: any) => {
       console.error('❌ Cancel and retry mutation failed:', error);
-      showSnackbar('error', `Failed to retry job: ${error.message}`, {
-        duration: 6000,
-        action: {
-          label: 'Dismiss',
-          onPress: () => {}, // Just dismiss the snackbar
-          accessibilityHint: 'Dismiss error message'
-        }
-      });
+      
+      // Check if this is an ISBN API error and offer alternatives
+      if (error.message?.includes('ISBN') && error.message?.includes('not found')) {
+        Alert.alert(
+          "ISBN Not Found",
+          `${error.message}\n\nWould you like to manually enter the book details instead?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { 
+              text: "Manual Entry", 
+              onPress: () => router.push('/manual-entry')
+            }
+          ]
+        );
+      } else if (error.message?.includes('Server error') && error.message?.includes('ISBN')) {
+        Alert.alert(
+          "ISBN Service Unavailable",
+          `${error.message}\n\nYou can try again later or manually enter the book details.`,
+          [
+            { text: "OK", style: "cancel" },
+            { 
+              text: "Manual Entry", 
+              onPress: () => router.push('/manual-entry')
+            }
+          ]
+        );
+      } else {
+        showSnackbar('error', `Failed to retry job: ${error.message}`, {
+          duration: 6000,
+          action: {
+            label: 'Dismiss',
+            onPress: () => {}, // Just dismiss the snackbar
+            accessibilityHint: 'Dismiss error message'
+          }
+        });
+      }
     }
   });
 
