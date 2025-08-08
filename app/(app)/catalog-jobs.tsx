@@ -7,10 +7,12 @@ import { calculateOverallConfidence, type ConfidenceLevel } from '@/utils/confid
 import { getJobType, getJobDisplayInfo, getJobThumbnail, getCertaintyDisplayText, getJobTypeBackgroundColor } from '@/utils/catalogJobs';
 import { ApiResponse, BookData } from '@/types/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { AlertCircle, AlertTriangle, BarChart3, BookCopy, Camera, CheckCircle2, CheckSquare, Clock, Edit3, Image as ImageIcon, Loader, MoreVertical, Plus, RotateCcw, SlidersHorizontal, Square, Trash2, Type } from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Modal, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import BottomTabBar from '@/components/navigation/BottomTabBar';
+import FloatingActionButton from '@/components/navigation/FloatingActionButton';
 
 // ISBN API function (same as in review.tsx and scan.tsx)
 const fetchBookDataByIsbn = async (isbn: string): Promise<BookData> => {
@@ -575,6 +577,23 @@ type SortOption = 'date-desc' | 'date-asc' | 'status' | 'method';
 type FilterOption = 'all' | 'pending' | 'processing' | 'completed' | 'failed' | 'needs-review';
 type ConfidenceFilterOption = 'all' | 'high' | 'medium' | 'low';
 type MethodFilterOption = 'all' | 'ai' | 'isbn_scan' | 'isbn_manual';
+
+// Custom refresh button component
+const RefreshButton = ({ onRefresh, refreshing }: { onRefresh: () => void, refreshing: boolean }) => (
+  <TouchableOpacity 
+    onPress={onRefresh}
+    disabled={refreshing}
+    style={{ padding: 4 }}
+  >
+    <Text style={{ 
+      color: refreshing ? '#9CA3AF' : '#007AFF', 
+      fontSize: 17,
+      fontWeight: '400'
+    }}>
+      {refreshing ? 'Refreshing...' : 'Refresh'}
+    </Text>
+  </TouchableOpacity>
+);
 
 export default function CatalogJobsScreen() {
   const { organizationId } = useAuth();
@@ -1290,25 +1309,6 @@ export default function CatalogJobsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Stack.Screen options={{ 
-        headerTitle: "Cataloging Jobs",
-        headerBackTitle: "Home",
-        headerRight: () => (
-          <TouchableOpacity 
-            onPress={handleRefresh}
-            disabled={refreshing}
-            style={{ marginRight: 0 }}
-          >
-            <Text style={{ 
-              color: refreshing ? '#9CA3AF' : '#007AFF', 
-              fontSize: 17,
-              fontWeight: '400'
-            }}>
-              {refreshing ? 'Refreshing...' : 'Refresh'}
-            </Text>
-          </TouchableOpacity>
-        )
-      }} />
       {renderContent()}
       
       {/* Filter Modal */}
@@ -1388,6 +1388,8 @@ export default function CatalogJobsScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+      <BottomTabBar />
+      <FloatingActionButton />
     </SafeAreaView>
   );
 }
@@ -1395,7 +1397,10 @@ export default function CatalogJobsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FBF9' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  listContainer: { padding: 16 },
+  listContainer: { padding: 16, paddingBottom: 88 }, // Added bottom padding for tab navigation
+  refreshButton: {
+    padding: 4,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

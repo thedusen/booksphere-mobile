@@ -4,9 +4,9 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { BookData } from '@/types/api';
 import { useQuery } from '@tanstack/react-query';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { ChevronDown, ChevronRight, ChevronUp, Search, X, Maximize, Minimize } from 'lucide-react-native';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // Types
@@ -323,6 +323,20 @@ export default function AddToInventoryScreen() {
 
   const bookData = JSON.parse(bookDataString as string) as BookData;
 
+  // Handle back button for multi-step navigation
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = router.addListener?.('beforeRemove' as any, (e: any) => {
+        if (step > 1) {
+          e.preventDefault();
+          setStep(step - 1);
+        }
+      });
+
+      return () => subscription?.();
+    }, [step, router])
+  );
+
   // Fetch data
   const { data: conditions, isLoading: isLoadingConditions } = useQuery<Condition[]>({
     queryKey: ['conditions'],
@@ -439,11 +453,6 @@ export default function AddToInventoryScreen() {
         headerShown: true, 
         headerTitle: `Step ${step} of 3`,
         headerBackTitle: "Back",
-        headerLeft: () => (
-          <TouchableOpacity onPress={() => step === 1 ? router.back() : setStep(step - 1)} className="p-2">
-            <Text className="text-secondary text-base">{step === 1 ? 'Cancel' : 'Back'}</Text>
-          </TouchableOpacity>
-        ), 
       }} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }} keyboardVerticalOffset={90}>
         <View className="flex-1 px-6 py-4">{renderStep()}</View>

@@ -1,9 +1,11 @@
 // app/(app)/inventory.tsx
 import { FlashList } from "@shopify/flash-list";
-import { Stack, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Barcode, Plus, Search, XCircle } from "lucide-react-native";
 import { styled } from "nativewind";
 import React, { useCallback, useMemo, useState } from "react";
+import BottomTabBar from '@/components/navigation/BottomTabBar';
+import FloatingActionButton from '@/components/navigation/FloatingActionButton';
 import {
   ActivityIndicator,
   SafeAreaView as RNSafeAreaView,
@@ -135,12 +137,6 @@ export default function InventoryScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <Stack.Screen 
-        options={{ 
-          headerTitle: "Inventory",
-          headerLargeTitle: true,
-        }} 
-      />
 
       {/* Header Section */}
       <View className="px-4 pt-2 pb-4 bg-background border-b border-border/30">
@@ -210,7 +206,7 @@ export default function InventoryScreen() {
         keyExtractor={(item) => item.edition_id}
         ListEmptyComponent={<EmptyState searchQuery={debouncedSearch} />}
         estimatedItemSize={150} // Increased slightly to account for multiple stock items
-        contentContainerStyle={{ paddingBottom: 100, paddingTop: 8 }}
+        contentContainerStyle={{ paddingBottom: 88, paddingTop: 8 }} // Updated for bottom nav
         removeClippedSubviews={true}
         onEndReached={() => {
           if (hasNextPage && !isFetchingNextPage) {
@@ -227,17 +223,8 @@ export default function InventoryScreen() {
           ) : null
         }
       />
-
-      {/* Floating Action Button */}
-      <TouchableOpacity 
-        className="absolute bottom-6 right-6 w-14 h-14 bg-secondary rounded-full items-center justify-center shadow-lg elevation-8"
-        onPress={handleAddNew}
-        activeOpacity={0.8}
-      >
-        <Plus size={28} color="white" />
-      </TouchableOpacity>
-
-      {/* The ContextMenu component has been removed entirely */}
+      <BottomTabBar />
+      <FloatingActionButton />
     </SafeAreaView>
   );
 }

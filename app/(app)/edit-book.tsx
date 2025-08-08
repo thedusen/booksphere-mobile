@@ -100,7 +100,6 @@ export default function EditBookScreen() {
           headerShown: true,
           headerTitle: "Edit Catalog Entry",
           headerBackTitle: "Back",
-          headerLeft: () => <TouchableOpacity onPress={() => router.back()} className="p-2" disabled={isSaving}><Text className="text-secondary text-base">Cancel</Text></TouchableOpacity>,
           headerRight: () => <TouchableOpacity onPress={handleSave} className="p-2" disabled={isSaving}>{isSaving ? <ActivityIndicator /> : <Text className="text-primary text-base font-bold">Save</Text>}</TouchableOpacity>,
         }}
       />

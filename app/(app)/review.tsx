@@ -2,7 +2,7 @@
 import { ApiResponse, BookData } from '@/types/api';
 import { useQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Edit3 } from 'lucide-react-native';
+import { Edit3 } from 'lucide-react-native';
 import { styled } from 'nativewind';
 import React, { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -148,14 +148,6 @@ export default function ReviewScreen() {
         options={{ 
           headerShown: true, 
           headerTitle: "Review Book",
-          headerBackTitle: "Home",
-          headerLeft: () => (
-            <TouchableOpacity onPress={handleGoBack} className="p-2">
-              <ArrowLeft size={24} color="#3B3B3A" />
-            </TouchableOpacity>
-          ),
-          // Ensure the default back button is disabled
-          headerBackVisible: false,
         }} 
       />
       <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24 }}>

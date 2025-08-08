@@ -218,7 +218,8 @@ const handleSubmit = async () => {
       <SafeAreaView style={[styles.container, styles.lightBackground]}>
         <Stack.Screen options={{ 
           headerTitle: 'Review Images',
-          headerBackTitle: 'Home'
+          headerBackTitle: 'Home',
+          headerTintColor: '#007AFF'
         }} />
         <Modal visible={!!viewingImage} transparent={true} onRequestClose={() => setViewingImage(null)}>
             <View style={styles.modalContainer}>

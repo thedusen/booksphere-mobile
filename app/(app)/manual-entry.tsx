@@ -66,16 +66,6 @@ export default function ManualEntryScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <Stack.Screen options={{ headerShown: false }} />
-      
-      {/* NEW: Explicit Back Button */}
-      <TouchableOpacity
-        onPress={() => router.back()}
-        className="absolute top-16 left-6 z-10 p-2"
-      >
-        <ArrowLeft size={28} color="#3B3B3A" />
-      </TouchableOpacity>
-
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1 justify-center items-center p-6"
