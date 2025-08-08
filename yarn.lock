@@ -1565,6 +1565,11 @@
   resolved "https://registry.yarnpkg.com/@react-native/normalize-colors/-/normalize-colors-0.74.89.tgz#b8ac17d1bbccd3ef9a1f921665d04d42cff85976"
   integrity sha512-qoMMXddVKVhZ8PA1AbUCk83trpd6N+1nF2A6k1i6LsQObyS92fELuk8kU/lQs6M7BsMHwqyLCpQJ1uFgNvIQXg==
 
+"@react-native/normalize-colors@^0.80.2":
+  version "0.80.2"
+  resolved "https://registry.yarnpkg.com/@react-native/normalize-colors/-/normalize-colors-0.80.2.tgz#99e7c0ec99780a5eaf39e262dd19728792f41972"
+  integrity sha512-08Ax7554Z31NXi5SQ6h1GsiSrlZEOYHQNSC7u+x91Tdiq87IXldW8Ib1N3ThXoDcD8bjr+I+MdlabEJw36/fFg==
+
 "@react-native/virtualized-lists@0.79.5":
   version "0.79.5"
   resolved "https://registry.yarnpkg.com/@react-native/virtualized-lists/-/virtualized-lists-0.79.5.tgz#5dbc01dcb4c836d40edcb4034b240a300ee310fb"

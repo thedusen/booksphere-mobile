@@ -154,6 +154,7 @@ const handleSubmit = async () => {
       }
 
       // Background API call - errors here won't block the user
+      console.log('📡 Calling Edge Function:', API_ENDPOINT, 'with jobId:', newJobId);
       fetch(API_ENDPOINT, { 
         method: 'POST', 
         headers: { 
@@ -161,14 +162,26 @@ const handleSubmit = async () => {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(edgeFunctionPayload)
-      }).then(response => {
+      }).then(async response => {
         if (!response.ok) {
-          console.error('Background Edge Function API failed:', response.status, response.statusText);
+          const errorText = await response.text().catch(() => 'Unable to read response');
+          console.error('Background Edge Function API failed:', {
+            status: response.status,
+            statusText: response.statusText,
+            url: API_ENDPOINT,
+            jobId: newJobId,
+            responseBody: errorText
+          });
         } else {
           console.log('✅ Background Edge Function request successful:', response.status);
         }
       }).catch(error => {
-        console.error('Background Edge Function API error:', error);
+        console.error('Background Edge Function API error:', {
+          error: error.message,
+          url: API_ENDPOINT,
+          jobId: newJobId,
+          errorType: error.constructor.name
+        });
       });
 
     } catch (error: any) {

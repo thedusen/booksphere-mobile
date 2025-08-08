@@ -47,7 +47,7 @@ export const getJobDisplayInfo = (job: any): JobDisplayInfo => {
       return {
         type: 'ai',
         displayName: 'AI Scan',
-        badgeColor: '#C7006F', // Primary magenta
+        badgeColor: '#7C3AED', // Purple - conveys intelligence and sophistication
         badgeIcon: 'camera',
         certaintyLevel: job.status === 'completed' ? getCertaintyFromAI(job) : 'high',
         canReprocess: true,
@@ -57,7 +57,7 @@ export const getJobDisplayInfo = (job: any): JobDisplayInfo => {
       return {
         type: 'isbn_scan',
         displayName: 'ISBN',
-        badgeColor: '#1FB1AB', // Secondary teal
+        badgeColor: '#3B82F6', // Blue - distinguished from green and purple
         badgeIcon: 'barcode',
         certaintyLevel: job.status === 'completed' ? 'high' : 'medium',
         canReprocess: false,
@@ -66,9 +66,9 @@ export const getJobDisplayInfo = (job: any): JobDisplayInfo => {
     case 'isbn_manual':
       return {
         type: 'isbn_manual',
-        displayName: 'Manual',
-        badgeColor: '#6B7280', // Gray
-        badgeIcon: 'type',
+        displayName: 'ISBN',
+        badgeColor: '#3B82F6', // Blue - same as isbn_scan
+        badgeIcon: 'barcode',
         certaintyLevel: job.status === 'completed' ? 'high' : 'medium',
         canReprocess: false,
       };
@@ -176,4 +176,19 @@ export const getCertaintyBackgroundColor = (job: any): string => {
   
   // ISBN jobs and non-completed jobs use white background
   return 'white';
+};
+
+// Get subtle background color based on job type
+export const getJobTypeBackgroundColor = (job: any): string => {
+  const jobType = getJobType(job);
+  
+  switch (jobType) {
+    case 'ai':
+      return '#FAF5FF'; // Very light purple tint - harmonious with purple theme
+    case 'isbn_scan':
+    case 'isbn_manual':
+      return '#EFF6FF'; // Very light blue tint
+    default:
+      return 'white';
+  }
 };

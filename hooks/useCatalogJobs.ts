@@ -2,6 +2,7 @@
 import { Enums, supabase, Tables } from '@/lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import { getJobType } from '@/utils/catalogJobs';
 
 // Use the generated type for the cataloging_jobs table
 export type CatalogJob = Tables<'cataloging_jobs'>;
@@ -9,10 +10,13 @@ export type CatalogJob = Tables<'cataloging_jobs'>;
 // Use the generated enum for status
 export type CatalogJobStatus = Enums<'cataloging_job_status'>;
 
+// Job type filter for top-level filtering
+export type JobTypeFilter = 'all' | 'ai' | 'isbn';
+
 // Custom hook to fetch jobs and subscribe to real-time updates
-export const useCatalogJobs = (organizationId: string) => {
+export const useCatalogJobs = (organizationId: string, jobTypeFilter: JobTypeFilter = 'all') => {
   const queryClient = useQueryClient();
-  const queryKey = ['catalog-jobs', organizationId];
+  const queryKey = ['catalog-jobs', organizationId, jobTypeFilter];
 
   // Fetch initial data
   const { data, isLoading, error, refetch } = useQuery<CatalogJob[]>({
@@ -26,7 +30,23 @@ export const useCatalogJobs = (organizationId: string) => {
         .order('created_at', { ascending: false });
 
       if (error) throw new Error(error.message);
-      return data || [];
+      
+      let jobs = data || [];
+      
+      // Apply job type filter
+      if (jobTypeFilter !== 'all') {
+        jobs = jobs.filter((job) => {
+          const jobType = getJobType(job);
+          if (jobTypeFilter === 'ai') {
+            return jobType === 'ai';
+          } else if (jobTypeFilter === 'isbn') {
+            return jobType === 'isbn_scan' || jobType === 'isbn_manual';
+          }
+          return true;
+        });
+      }
+      
+      return jobs;
     },
     enabled: !!organizationId,
     staleTime: 30000, // Consider data fresh for 30 seconds
@@ -49,8 +69,11 @@ export const useCatalogJobs = (organizationId: string) => {
             newStatus: payload.new?.status,
             oldStatus: payload.old?.status
           });
-          // Invalidate the query to force a refetch, which will update the UI
-          queryClient.invalidateQueries({ queryKey });
+          // Invalidate all catalog-jobs queries to ensure all filter views update
+          queryClient.invalidateQueries({ 
+            queryKey: ['catalog-jobs', organizationId],
+            exact: false // This will invalidate all queries that start with this key
+          });
         }
       )
       .subscribe();

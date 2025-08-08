@@ -180,6 +180,17 @@ EXPO_PUBLIC_API_BASE_URL=https://qdpvud.buildship.run
 
 ## Important Implementation Notes
 
+### Infrastructure Management
+- **⚠️ CRITICAL**: This mobile project does NOT manage Supabase infrastructure
+- **booksphere-web** is the single source of truth for:
+  - Database schema and migrations
+  - Edge Functions (including `process-cataloging-job`)
+  - RPC functions
+  - Storage policies
+  - All Supabase deployments
+- This mobile project only contains client-side code that consumes Supabase APIs
+- Never deploy Supabase functions from this project - always use booksphere-web
+
 ### Database Types
 - Database types are auto-generated via `yarn types:generate` from Supabase schema
 - Types are stored in `types/database.types.ts` - never edit manually
@@ -219,3 +230,4 @@ Email: test3@booksphere.com / Password: TestUser123!
 - Organization ID is now fetched dynamically from `user_organizations` table - supports true multi-tenancy
 - Users without organization membership will see an error state in the AuthContext
 - The AI feedback system creates append-only logs - multiple changes to the same field create separate entries for analytics
+- This project should NOT make any changes to the supabase/database.  The booksphere-web project is the source of truth for any database/edge function related management

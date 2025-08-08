@@ -1,10 +1,10 @@
 // app/(app)/catalog-jobs.tsx
 import { useAuth } from '@/context/AuthContext';
-import { CatalogJob, useCatalogJobs } from '@/hooks/useCatalogJobs';
+import { CatalogJob, useCatalogJobs, JobTypeFilter } from '@/hooks/useCatalogJobs';
 import { useSnackbar } from '@/hooks/useSnackbar';
 import { supabase } from '@/lib/supabase';
-import { calculateOverallConfidence, getConfidenceDisplayText, getConfidenceAccessibilityLabel, getConfidenceIcon, getConfidenceBackgroundColor, type ConfidenceLevel } from '@/utils/confidence';
-import { getJobType, getJobDisplayInfo, getJobThumbnail, getCertaintyBackgroundColor, getCertaintyDisplayText } from '@/utils/catalogJobs';
+import { calculateOverallConfidence, type ConfidenceLevel } from '@/utils/confidence';
+import { getJobType, getJobDisplayInfo, getJobThumbnail, getCertaintyDisplayText, getJobTypeBackgroundColor } from '@/utils/catalogJobs';
 import { ApiResponse, BookData } from '@/types/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Stack, useRouter } from 'expo-router';
@@ -41,6 +41,179 @@ const fetchBookDataByIsbn = async (isbn: string): Promise<BookData> => {
   }
 };
 
+// Helper functions for extracting book information from job data
+const extractBookInfo = (job: CatalogJob) => {
+  const extractedData = job.extracted_data as any;
+  
+  // Handle different job states
+  if (job.status === 'pending' || job.status === 'processing' || !extractedData) {
+    return {
+      title: 'Processing...',
+      author: 'Extracting book details',
+      isbn: null,
+      isProcessing: true
+    };
+  }
+  
+  if (job.status === 'failed') {
+    return {
+      title: 'Processing Failed',
+      author: 'Unable to extract book details',
+      isbn: null,
+      isProcessing: false
+    };
+  }
+  
+  // Extract title - handle both string and object formats
+  let title = 'Unknown Title';
+  if (extractedData.title) {
+    if (typeof extractedData.title === 'string') {
+      title = extractedData.title;
+    } else if (typeof extractedData.title === 'object' && extractedData.title.name) {
+      title = extractedData.title.name;
+    } else {
+      title = 'Unknown Title';
+    }
+  }
+  
+  // Extract author - handle both string and array formats, and object formats
+  let author = 'Unknown Author';
+  if (extractedData.authors) {
+    if (Array.isArray(extractedData.authors)) {
+      if (extractedData.authors.length > 0) {
+        const firstAuthor = extractedData.authors[0];
+        // Handle case where author is an object with name property
+        if (typeof firstAuthor === 'object' && firstAuthor.name) {
+          author = firstAuthor.name;
+        } else if (typeof firstAuthor === 'string') {
+          author = firstAuthor;
+        } else {
+          author = 'Unknown Author';
+        }
+      }
+    } else if (typeof extractedData.authors === 'string') {
+      author = extractedData.authors;
+    } else if (typeof extractedData.authors === 'object' && extractedData.authors.name) {
+      // Handle case where authors is a single object with name property
+      author = extractedData.authors.name;
+    }
+  } else if (extractedData.author) {
+    if (typeof extractedData.author === 'object' && extractedData.author.name) {
+      author = extractedData.author.name;
+    } else if (typeof extractedData.author === 'string') {
+      author = extractedData.author;
+    }
+  }
+  
+  // Extract ISBN
+  const isbn = extractedData.isbn || null;
+  
+  // Ensure we always have strings and handle truncation safely
+  const finalTitle = String(title || 'Unknown Title');
+  const finalAuthor = String(author || 'Unknown Author');
+  
+  return {
+    title: finalTitle.length > 50 ? finalTitle.substring(0, 50) + '...' : finalTitle,
+    author: finalAuthor.length > 30 ? finalAuthor.substring(0, 30) + '...' : finalAuthor,
+    isbn,
+    isProcessing: false
+  };
+};
+
+// Job Type Filter Buttons Component
+const JobTypeFilterButtons = ({ 
+  activeFilter, 
+  onFilterChange, 
+  jobCounts 
+}: { 
+  activeFilter: JobTypeFilter; 
+  onFilterChange: (filter: JobTypeFilter) => void;
+  jobCounts: { all: number; ai: number; isbn: number };
+}) => {
+  const filterOptions = [
+    {
+      key: 'all' as JobTypeFilter,
+      label: 'All',
+      icon: BookCopy,
+      color: '#6B7280',
+      lightColor: '#F3F4F6', // Light gray
+      count: jobCounts.all
+    },
+    {
+      key: 'ai' as JobTypeFilter,
+      label: 'AI',
+      icon: Camera,
+      color: '#7C3AED', // Purple - matches the new AI theme
+      lightColor: '#F3E8FF', // Light purple
+      count: jobCounts.ai
+    },
+    {
+      key: 'isbn' as JobTypeFilter,
+      label: 'ISBN',
+      icon: BarChart3,
+      color: '#3B82F6', // Blue - distinguished from green and purple
+      lightColor: '#EFF6FF', // Light blue
+      count: jobCounts.isbn
+    }
+  ];
+
+  return (
+    <View style={styles.filterButtonsContainer}>
+      {filterOptions.map((option) => {
+        const IconComponent = option.icon;
+        const isActive = activeFilter === option.key;
+        
+        return (
+          <TouchableOpacity
+            key={option.key}
+            onPress={() => onFilterChange(option.key)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isActive }}
+            accessibilityLabel={`Filter by ${option.label} jobs, ${option.count} jobs available`}
+            style={styles.filterButtonWrapper}
+          >
+            <View style={[
+              styles.jobTypeFilterButton,
+              isActive && [
+                styles.filterButtonActive, 
+                { 
+                  backgroundColor: option.lightColor,
+                  borderColor: option.color,
+                  borderWidth: 1
+                }
+              ]
+            ]}>
+              <IconComponent 
+                size={18} 
+                color={option.color} 
+              />
+              <Text style={[
+                styles.jobTypeFilterButtonText,
+                isActive && { color: option.color }
+              ]}>
+                {option.label}
+              </Text>
+              {option.count > 0 && (
+                <View style={[
+                  styles.filterButtonBadge,
+                  isActive && { backgroundColor: option.color }
+                ]}>
+                  <Text style={[
+                    styles.filterButtonBadgeText,
+                    isActive && { color: 'white' }
+                  ]}>
+                    {option.count}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+};
+
 const JobTypeBadge = ({ job }: { job: CatalogJob }) => {
   const displayInfo = getJobDisplayInfo(job);
   
@@ -63,18 +236,109 @@ const JobTypeBadge = ({ job }: { job: CatalogJob }) => {
   );
 };
 
-const JobStatusIndicator = ({ status }: { status: CatalogJob['status'] }) => {
-  switch (status) {
-    case 'completed':
-      return null; // Status indicator moved inline for completed jobs
-    case 'processing':
-      return <Loader size={20} color="#F59E0B" />;
-    case 'failed':
-      return <AlertCircle size={20} color="#EF4444" />;
-    case 'pending':
-    default:
-      return <Clock size={20} color="#6B7280" />;
-  }
+const JobStatusChip = ({ job }: { job: CatalogJob }) => {
+  const jobType = getJobType(job);
+  const confidence = useMemo(() => {
+    if (jobType === 'ai' && job.status === 'completed' && job.extracted_data) {
+      return calculateOverallConfidence(job.extracted_data as any);
+    }
+    return 'high' as ConfidenceLevel; // Default for non-AI jobs
+  }, [jobType, job.status, job.extracted_data]);
+
+  const getStatusConfig = () => {
+    switch (job.status) {
+      case 'completed':
+        if (jobType === 'ai') {
+          switch (confidence) {
+            case 'high':
+              return {
+                icon: CheckCircle2,
+                text: 'Ready for Review',
+                backgroundColor: '#DCFCE7', // Light green
+                textColor: '#166534', // Dark green
+                iconColor: '#22C55E' // Green
+              };
+            case 'medium':
+              return {
+                icon: AlertTriangle,
+                text: 'Review Carefully',
+                backgroundColor: '#FEF3C7', // Light amber
+                textColor: '#92400E', // Dark amber
+                iconColor: '#F59E0B' // Amber
+              };
+            case 'low':
+              return {
+                icon: AlertCircle,
+                text: 'Needs Attention',
+                backgroundColor: '#FEE2E2', // Light red
+                textColor: '#991B1B', // Dark red
+                iconColor: '#EF4444' // Red
+              };
+          }
+        } else {
+          return {
+            icon: CheckCircle2,
+            text: getCertaintyDisplayText(job),
+            backgroundColor: '#DCFCE7', // Light green
+            textColor: '#166534', // Dark green
+            iconColor: '#22C55E' // Green
+          };
+        }
+        break;
+      case 'processing':
+        return {
+          icon: Loader,
+          text: 'Processing',
+          backgroundColor: '#FEF3C7', // Light amber
+          textColor: '#92400E', // Dark amber
+          iconColor: '#F59E0B' // Amber
+        };
+      case 'failed':
+        return {
+          icon: AlertCircle,
+          text: 'Failed',
+          backgroundColor: '#FEE2E2', // Light red
+          textColor: '#991B1B', // Dark red
+          iconColor: '#EF4444' // Red
+        };
+      case 'pending':
+      default:
+        return {
+          icon: Clock,
+          text: 'Pending',
+          backgroundColor: '#F3F4F6', // Light gray
+          textColor: '#374151', // Dark gray
+          iconColor: '#6B7280' // Gray
+        };
+    }
+    
+    // Fallback
+    return {
+      icon: Clock,
+      text: 'Unknown',
+      backgroundColor: '#F3F4F6',
+      textColor: '#374151',
+      iconColor: '#6B7280'
+    };
+  };
+
+  const config = getStatusConfig();
+  const IconComponent = config.icon;
+
+  return (
+    <View style={[
+      styles.statusChip,
+      { backgroundColor: config.backgroundColor }
+    ]}>
+      <IconComponent size={14} color={config.iconColor} />
+      <Text style={[
+        styles.statusChipText,
+        { color: config.textColor }
+      ]}>
+        {config.text}
+      </Text>
+    </View>
+  );
 };
 
 const JobStatusRow = ({ 
@@ -95,17 +359,10 @@ const JobStatusRow = ({
   onToggleSelect: (jobId: string) => void;
 }) => {
     const router = useRouter();
-    const jobType = getJobType(item);
     const displayInfo = getJobDisplayInfo(item);
     const thumbnailUrl = getJobThumbnail(item);
-    
-    // Calculate confidence for AI jobs or certainty for ISBN jobs
-    const confidence = useMemo(() => {
-        if (jobType === 'ai' && item.status === 'completed' && item.extracted_data) {
-            return calculateOverallConfidence(item.extracted_data as any);
-        }
-        return 'high' as ConfidenceLevel; // Default for non-AI jobs
-    }, [jobType, item.status, item.extracted_data]);
+    const bookInfo = extractBookInfo(item);
+    const jobTypeBackgroundColor = getJobTypeBackgroundColor(item);
     const [showActions, setShowActions] = useState(false);
 
     const handlePress = () => {
@@ -177,77 +434,76 @@ const JobStatusRow = ({
     const canDelete = item.status === 'pending' || item.status === 'failed' || item.status === 'completed' || item.status === 'processing'; // Allow deletion of all jobs including stuck processing ones
     const canShowActions = item.status === 'pending' || item.status === 'failed' || item.status === 'completed' || item.status === 'processing'; // Show context menu for all jobs
 
-    // Get confidence/certainty-based styling
-    const backgroundColorStyle = jobType === 'ai' && item.status === 'completed'
-        ? getConfidenceBackgroundColor(confidence)
-        : getCertaintyBackgroundColor(item);
-
     return (
         <TouchableOpacity 
             style={[
-                styles.rowContainer,
-                { backgroundColor: backgroundColorStyle },
+                styles.newRowContainer,
+                { backgroundColor: jobTypeBackgroundColor },
                 isSelectionMode && canDelete && styles.selectableRow,
                 isSelected && styles.selectedRow
             ]} 
             onPress={handlePress}
             disabled={!isSelectionMode && item.status !== 'completed' && item.status !== 'failed' && item.status !== 'pending'}
-            accessibilityLabel={item.status === 'completed' 
-                ? getConfidenceAccessibilityLabel(confidence)
-                : `Job ${item.status}, created ${new Date(item.created_at).toLocaleDateString()}`
-            }
+            accessibilityLabel={`${bookInfo.title} by ${bookInfo.author}, ${item.status}`}
         >
-            {thumbnailUrl ? (
-                <Image source={{ uri: thumbnailUrl }} style={styles.thumbnail} />
-            ) : (
-                <View style={[styles.thumbnail, styles.thumbnailPlaceholder]}>
-                    {displayInfo.badgeIcon === 'camera' ? (
-                        <ImageIcon size={24} color="#9CA3AF" />
-                    ) : displayInfo.badgeIcon === 'barcode' ? (
-                        <BarChart3 size={24} color="#9CA3AF" />
-                    ) : (
-                        <Type size={24} color="#9CA3AF" />
-                    )}
-                </View>
-            )}
-            <View style={styles.rowTextContainer}>
-                <View style={styles.rowDateAndBadge}>
-                    <Text style={styles.rowDate}>{new Date(item.created_at).toLocaleString()}</Text>
-                    <JobTypeBadge job={item} />
-                </View>
-                {item.status === 'completed' ? (
-                    <View style={styles.completedStatusContainer}>
-                        {jobType === 'ai' ? (
-                            <>
-                                {(() => {
-                                    const iconConfig = getConfidenceIcon(confidence);
-                                    const IconComponent = iconConfig.name === 'CheckCircle2' ? CheckCircle2 
-                                        : iconConfig.name === 'AlertTriangle' ? AlertTriangle 
-                                        : AlertCircle;
-                                    return <IconComponent size={16} color={iconConfig.color} />;
-                                })()}
-                                <Text style={[
-                                    styles.completedStatusText,
-                                    confidence === 'medium' && styles.mediumConfidenceText,
-                                    confidence === 'low' && styles.lowConfidenceText
-                                ]}>
-                                    {getConfidenceDisplayText(confidence)}
-                                </Text>
-                            </>
+            {/* Book Cover - Larger size for better identification */}
+            <View style={styles.bookCoverContainer}>
+                {thumbnailUrl ? (
+                    <Image source={{ uri: thumbnailUrl }} style={styles.newThumbnail} />
+                ) : (
+                    <View style={[styles.newThumbnail, styles.thumbnailPlaceholder]}>
+                        {displayInfo.badgeIcon === 'camera' ? (
+                            <ImageIcon size={28} color="#9CA3AF" />
+                        ) : displayInfo.badgeIcon === 'barcode' ? (
+                            <BarChart3 size={28} color="#9CA3AF" />
                         ) : (
-                            <>
-                                <CheckCircle2 size={16} color="#1FB1AB" />
-                                <Text style={[styles.completedStatusText, { color: '#1FB1AB' }]}>
-                                    {getCertaintyDisplayText(item)}
-                                </Text>
-                            </>
+                            <Type size={28} color="#9CA3AF" />
                         )}
                     </View>
-                ) : (
-                    <Text style={styles.rowStatus}>{item.status.charAt(0).toUpperCase() + item.status.slice(1)}</Text>
                 )}
             </View>
-            <View style={styles.rowActions}>
+
+            {/* Main Content Area */}
+            <View style={styles.newContentContainer}>
+                {/* Title - Most prominent */}
+                <Text style={[
+                    styles.bookTitle,
+                    bookInfo.isProcessing && styles.processingText
+                ]} numberOfLines={1}>
+                    {bookInfo.title}
+                </Text>
+                
+                {/* Author - Secondary prominence */}
+                <Text style={[
+                    styles.bookAuthor,
+                    bookInfo.isProcessing && styles.processingText
+                ]} numberOfLines={1}>
+                    {bookInfo.author}
+                </Text>
+                
+                {/* Status Chip - Integrated into content flow */}
+                <View style={styles.statusChipContainer}>
+                    <JobStatusChip job={item} />
+                </View>
+                
+                {/* ISBN - Tertiary information when available */}
+                {bookInfo.isbn && !bookInfo.isProcessing && (
+                    <Text style={styles.bookIsbn} numberOfLines={1}>
+                        ISBN: {bookInfo.isbn}
+                    </Text>
+                )}
+                
+                {/* Footer Row - Date and Job Badge */}
+                <View style={styles.footerRow}>
+                    <Text style={styles.jobDate}>
+                        {new Date(item.created_at).toLocaleDateString()}
+                    </Text>
+                    <JobTypeBadge job={item} />
+                </View>
+            </View>
+
+            {/* Actions - Right side */}
+            <View style={styles.actionsContainer}>
                 {isSelectionMode && canDelete ? (
                     isSelected ? (
                         <CheckSquare size={20} color="#1FB1AB" />
@@ -255,17 +511,14 @@ const JobStatusRow = ({
                         <Square size={20} color="#6B7280" />
                     )
                 ) : (
-                    <>
-                        <JobStatusIndicator status={item.status} />
-                        {canShowActions && !isSelectionMode && (
-                            <TouchableOpacity 
-                                style={styles.actionButton}
-                                onPress={() => setShowActions(true)}
-                            >
-                                <MoreVertical size={16} color="#6B7280" />
-                            </TouchableOpacity>
-                        )}
-                    </>
+                    canShowActions && !isSelectionMode && (
+                        <TouchableOpacity 
+                            style={styles.actionButton}
+                            onPress={() => setShowActions(true)}
+                        >
+                            <MoreVertical size={16} color="#6B7280" />
+                        </TouchableOpacity>
+                    )
                 )}
             </View>
             
@@ -325,7 +578,10 @@ type MethodFilterOption = 'all' | 'ai' | 'isbn_scan' | 'isbn_manual';
 
 export default function CatalogJobsScreen() {
   const { organizationId } = useAuth();
-  const { data: jobs, isLoading, error, refetch } = useCatalogJobs(organizationId || '');
+  const [jobTypeFilter, setJobTypeFilter] = useState<JobTypeFilter>('all');
+  const { data: jobs, isLoading, error, refetch } = useCatalogJobs(organizationId || '', jobTypeFilter);
+  // Also fetch all jobs to calculate counts for filter buttons
+  const { data: allJobs } = useCatalogJobs(organizationId || '', 'all');
   const { showSnackbar } = useSnackbar();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -755,19 +1011,29 @@ export default function CatalogJobsScreen() {
     }
   });
 
-  // Sort and filter jobs
+  // Calculate job counts for filter buttons
+  const jobCounts = useMemo(() => {
+    if (!allJobs) return { all: 0, ai: 0, isbn: 0 };
+    
+    const counts = { all: allJobs.length, ai: 0, isbn: 0 };
+    
+    allJobs.forEach((job) => {
+      const jobType = getJobType(job);
+      if (jobType === 'ai') {
+        counts.ai += 1;
+      } else if (jobType === 'isbn_scan' || jobType === 'isbn_manual') {
+        counts.isbn += 1;
+      }
+    });
+    
+    return counts;
+  }, [allJobs]);
+
+  // Sort and filter jobs (method filtering is now handled by the hook)
   const processedJobs = useMemo(() => {
     if (!jobs) return [];
     
     let filtered = jobs as CatalogJob[];
-    
-    // Apply method filter
-    if (methodFilter !== 'all') {
-      filtered = filtered.filter((job: CatalogJob) => {
-        const jobType = getJobType(job);
-        return jobType === methodFilter;
-      });
-    }
     
     // Apply status filter
     if (filterBy === 'needs-review') {
@@ -817,7 +1083,7 @@ export default function CatalogJobsScreen() {
     });
     
     return sorted;
-  }, [jobs, sortBy, filterBy, confidenceFilter, methodFilter]);
+  }, [jobs, sortBy, filterBy, confidenceFilter]);
 
   const handleDelete = (jobId: string) => {
     deleteMutation.mutate(jobId);
@@ -931,7 +1197,7 @@ export default function CatalogJobsScreen() {
               style={styles.filterButton}
               onPress={() => setShowFilters(true)}
             >
-              <SlidersHorizontal size={20} color="#6B7280" />
+              <SlidersHorizontal size={16} color="#6B7280" />
               <Text style={styles.filterButtonText}>Filters</Text>
             </TouchableOpacity>
             {deletableJobs.length > 0 && (
@@ -1000,7 +1266,16 @@ export default function CatalogJobsScreen() {
         )}
         keyExtractor={(item) => item.job_id}
         contentContainerStyle={styles.listContainer}
-        ListHeaderComponent={renderHeader}
+        ListHeaderComponent={() => (
+          <>
+            <JobTypeFilterButtons
+              activeFilter={jobTypeFilter}
+              onFilterChange={setJobTypeFilter}
+              jobCounts={jobCounts}
+            />
+            {renderHeader()}
+          </>
+        )}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -1017,7 +1292,22 @@ export default function CatalogJobsScreen() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ 
         headerTitle: "Cataloging Jobs",
-        headerBackTitle: "Home"
+        headerBackTitle: "Home",
+        headerRight: () => (
+          <TouchableOpacity 
+            onPress={handleRefresh}
+            disabled={refreshing}
+            style={{ marginRight: 0 }}
+          >
+            <Text style={{ 
+              color: refreshing ? '#9CA3AF' : '#007AFF', 
+              fontSize: 17,
+              fontWeight: '400'
+            }}>
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </Text>
+          </TouchableOpacity>
+        )
       }} />
       {renderContent()}
       
@@ -1095,24 +1385,6 @@ export default function CatalogJobsScreen() {
               ))}
             </View>
             
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Filter By Method</Text>
-              {[
-                { key: 'all', label: 'All Methods' },
-                { key: 'ai', label: 'AI Cataloging' },
-                { key: 'isbn_scan', label: 'ISBN Scan' },
-                { key: 'isbn_manual', label: 'Manual Entry' }
-              ].map((option) => (
-                <TouchableOpacity
-                  key={option.key}
-                  style={styles.optionRow}
-                  onPress={() => setMethodFilter(option.key as MethodFilterOption)}
-                >
-                  <Text style={styles.optionText}>{option.label}</Text>
-                  {methodFilter === option.key && <CheckCircle2 size={20} color="#1FB1AB" />}
-                </TouchableOpacity>
-              ))}
-            </View>
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -1139,15 +1411,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'white',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
   filterButtonText: {
-    marginLeft: 6,
-    fontSize: 14,
+    marginLeft: 4,
+    fontSize: 12,
     color: '#6B7280',
     fontWeight: '500',
   },
@@ -1210,25 +1482,101 @@ const styles = StyleSheet.create({
     borderColor: '#1FB1AB',
     borderWidth: 2,
   },
-  rowContainer: {
+  // New redesigned row container
+  newRowContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    padding: 12,
+    padding: 16,
     borderRadius: 12,
     marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  thumbnail: { width: 50, height: 75, borderRadius: 4, backgroundColor: '#E5E7EB' },
-  thumbnailPlaceholder: { justifyContent: 'center', alignItems: 'center' },
-  rowTextContainer: { flex: 1, marginLeft: 12 },
-  rowDate: { fontSize: 14, color: '#6B7280' },
-  rowStatus: { fontSize: 16, fontWeight: '600', color: '#111827', marginTop: 4 },
-  rowActions: {
+  // Book cover styling
+  bookCoverContainer: {
+    marginRight: 16,
+  },
+  newThumbnail: { 
+    width: 60, 
+    height: 90, 
+    borderRadius: 6, 
+    backgroundColor: '#E5E7EB' 
+  },
+  thumbnailPlaceholder: { 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  // Main content area
+  newContentContainer: { 
+    flex: 1,
+    justifyContent: 'space-between',
+    minHeight: 90,
+  },
+  // Book information styling
+  bookTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  bookAuthor: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+    lineHeight: 18,
+    marginBottom: 6,
+  },
+  bookIsbn: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '400',
+    marginBottom: 4,
+  },
+  processingText: {
+    fontStyle: 'italic',
+    color: '#9CA3AF',
+  },
+  // Status chip styling
+  statusChipContainer: {
+    alignSelf: 'flex-start',
+    marginBottom: 6,
+  },
+  statusChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  statusChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  // Footer row styling
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 'auto',
+  },
+  jobDate: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '400',
+  },
+  // Actions container
+  actionsContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+    minWidth: 24,
   },
   actionButton: {
-    marginLeft: 8,
     padding: 4,
   },
   modalOverlay: {
@@ -1265,23 +1613,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#1FB1AB',
     fontWeight: '500',
-  },
-  completedStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  completedStatusText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#22C55E',
-    marginLeft: 6,
-  },
-  mediumConfidenceText: {
-    color: '#F59E0B', // Amber color for medium confidence
-  },
-  lowConfidenceText: {
-    color: '#EF4444', // Red color for low confidence
   },
   modalContainer: {
     flex: 1,
@@ -1342,7 +1673,7 @@ const styles = StyleSheet.create({
   addCatalogButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#C7006F',
+    backgroundColor: '#1FB1AB', // Use teal for primary action instead of old magenta
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
@@ -1360,7 +1691,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 8,
-    marginLeft: 8,
   },
   jobBadgeText: {
     color: 'white',
@@ -1368,9 +1698,56 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 3,
   },
-  rowDateAndBadge: {
+  // Job Type Filter Buttons Styles
+  filterButtonsContainer: {
+    flexDirection: 'row',
+    paddingTop: 12,
+    paddingBottom: 17,
+    backgroundColor: '#F9FBF9',
+    gap: 8,
+    marginHorizontal: -16, // Counteract the listContainer padding
+    paddingHorizontal: 16, // Add back the padding we want
+  },
+  filterButtonWrapper: {
+    flex: 1,
+  },
+  jobTypeFilterButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  filterButtonActive: {
+    // Border color and width will be set inline for each button type
+    // Remove shadow changes to maintain consistent elevation
+  },
+  jobTypeFilterButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginLeft: 6,
+  },
+  filterButtonBadge: {
+    backgroundColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 6,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  filterButtonBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B7280',
   },
 });
