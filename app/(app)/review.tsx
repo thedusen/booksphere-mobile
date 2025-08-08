@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Edit3 } from 'lucide-react-native';
 import { styled } from 'nativewind';
-import React from 'react';
+import React, { useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 import {
   ActivityIndicator,
   Image as RNImage,
@@ -34,13 +35,51 @@ const fetchBookDataByIsbn = async (isbn: string): Promise<BookData> => {
 
 export default function ReviewScreen() {
   const router = useRouter();
-  const { isbn } = useLocalSearchParams<{ isbn: string }>();
+  const { isbn, job_id } = useLocalSearchParams<{ isbn: string; job_id?: string }>();
 
   const { data: bookData, isLoading, error, refetch } = useQuery<BookData, Error>({
     queryKey: ['bookDetails', isbn],
     queryFn: () => fetchBookDataByIsbn(isbn!),
     enabled: !!isbn,
   });
+
+  // Update job status when data is successfully fetched or when error persists
+  useEffect(() => {
+    if (bookData && job_id) {
+      console.log(`📝 Updating job ${job_id} status to completed`);
+      supabase
+        .from('cataloging_jobs')
+        .update({ 
+          extracted_data: bookData, 
+          status: 'completed' 
+        })
+        .eq('job_id', job_id)
+        .then(({ error }) => {
+          if (error) {
+            console.error(`❌ Failed to update job ${job_id}:`, error);
+          } else {
+            console.log(`✅ Job ${job_id} updated to completed`);
+          }
+        });
+    } else if (error && job_id) {
+      // If we have a persistent error and job_id, mark the job as failed
+      console.log(`⚠️ Marking job ${job_id} as failed due to persistent API error`);
+      supabase
+        .from('cataloging_jobs')
+        .update({ 
+          status: 'failed',
+          error_message: error.message
+        })
+        .eq('job_id', job_id)
+        .then(({ error: updateError }) => {
+          if (updateError) {
+            console.error(`❌ Failed to mark job ${job_id} as failed:`, updateError);
+          } else {
+            console.log(`✅ Job ${job_id} marked as failed`);
+          }
+        });
+    }
+  }, [bookData, error, job_id]);
 
   const handleAddToInventory = () => {
     if (!bookData) return;

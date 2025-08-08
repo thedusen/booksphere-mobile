@@ -4,11 +4,45 @@ import { CatalogJob, useCatalogJobs } from '@/hooks/useCatalogJobs';
 import { useSnackbar } from '@/hooks/useSnackbar';
 import { supabase } from '@/lib/supabase';
 import { calculateOverallConfidence, getConfidenceDisplayText, getConfidenceAccessibilityLabel, getConfidenceIcon, getConfidenceBackgroundColor, type ConfidenceLevel } from '@/utils/confidence';
+import { getJobType, getJobDisplayInfo, getJobThumbnail, getCertaintyBackgroundColor, getCertaintyDisplayText } from '@/utils/catalogJobs';
+import { ApiResponse, BookData } from '@/types/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Stack, useRouter } from 'expo-router';
-import { AlertCircle, AlertTriangle, CheckCircle2, CheckSquare, Clock, Edit3, Image as ImageIcon, Loader, MoreVertical, Plus, RotateCcw, SlidersHorizontal, Square, Trash2 } from 'lucide-react-native';
+import { AlertCircle, AlertTriangle, BarChart3, BookCopy, Camera, CheckCircle2, CheckSquare, Clock, Edit3, Image as ImageIcon, Loader, MoreVertical, Plus, RotateCcw, SlidersHorizontal, Square, Trash2, Type } from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Modal, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+// ISBN API function (same as in review.tsx and scan.tsx)
+const fetchBookDataByIsbn = async (isbn: string): Promise<BookData> => {
+  const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+  const response = await fetch(`${baseUrl}/getEnrichedBookDataByIsbn?isbn=${isbn}`);
+  if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
+  const data: ApiResponse = await response.json();
+  if (data.jsonResult && data.jsonResult.bookData) return data.jsonResult.bookData;
+  throw new Error("Book data not found for this ISBN.");
+};
+
+const JobTypeBadge = ({ job }: { job: CatalogJob }) => {
+  const displayInfo = getJobDisplayInfo(job);
+  
+  const getIconComponent = (iconName: string) => {
+    switch (iconName) {
+      case 'camera': return Camera;
+      case 'barcode': return BarChart3;
+      case 'type': return Type;
+      default: return BookCopy;
+    }
+  };
+  
+  const IconComponent = getIconComponent(displayInfo.badgeIcon);
+  
+  return (
+    <View style={[styles.jobBadge, { backgroundColor: displayInfo.badgeColor }]}>
+      <IconComponent size={12} color="white" />
+      <Text style={styles.jobBadgeText}>{displayInfo.displayName}</Text>
+    </View>
+  );
+};
 
 const JobStatusIndicator = ({ status }: { status: CatalogJob['status'] }) => {
   switch (status) {
@@ -42,15 +76,17 @@ const JobStatusRow = ({
   onToggleSelect: (jobId: string) => void;
 }) => {
     const router = useRouter();
-    const coverImageUrl = (item.image_urls as any)?.cover_url;
+    const jobType = getJobType(item);
+    const displayInfo = getJobDisplayInfo(item);
+    const thumbnailUrl = getJobThumbnail(item);
     
-    // Calculate confidence for completed jobs
+    // Calculate confidence for AI jobs or certainty for ISBN jobs
     const confidence = useMemo(() => {
-        if (item.status === 'completed' && item.extracted_data) {
+        if (jobType === 'ai' && item.status === 'completed' && item.extracted_data) {
             return calculateOverallConfidence(item.extracted_data as any);
         }
-        return 'high' as ConfidenceLevel;
-    }, [item.status, item.extracted_data]);
+        return 'high' as ConfidenceLevel; // Default for non-AI jobs
+    }, [jobType, item.status, item.extracted_data]);
     const [showActions, setShowActions] = useState(false);
 
     const handlePress = () => {
@@ -60,6 +96,9 @@ const JobStatusRow = ({
             }
         } else if (item.status === 'completed') {
             // For completed jobs, navigate directly to review
+            router.push(`/catalog-review/${item.job_id}`);
+        } else if (item.status === 'pending') {
+            // For pending jobs, navigate to review (will show loading state)
             router.push(`/catalog-review/${item.job_id}`);
         } else if (item.status === 'failed') {
             Alert.alert("Job Failed", item.error_message || "An unknown error occurred during processing.");
@@ -116,54 +155,74 @@ const JobStatusRow = ({
         );
     };
 
-    const canDelete = item.status === 'pending' || item.status === 'failed'; // Only pending and failed jobs can be deleted
+    const canDelete = item.status === 'pending' || item.status === 'failed' || item.status === 'completed'; // Allow deletion of pending, failed, and completed jobs
     const canShowActions = item.status === 'pending' || item.status === 'failed' || item.status === 'completed'; // Show context menu for jobs that have actions available
 
-    // Get confidence-based styling
-    const confidenceBackgroundColor = item.status === 'completed' 
-        ? getConfidenceBackgroundColor(confidence) 
-        : 'white';
+    // Get confidence/certainty-based styling
+    const backgroundColorStyle = jobType === 'ai' && item.status === 'completed'
+        ? getConfidenceBackgroundColor(confidence)
+        : getCertaintyBackgroundColor(item);
 
     return (
         <TouchableOpacity 
             style={[
                 styles.rowContainer,
-                { backgroundColor: confidenceBackgroundColor },
+                { backgroundColor: backgroundColorStyle },
                 isSelectionMode && canDelete && styles.selectableRow,
                 isSelected && styles.selectedRow
             ]} 
             onPress={handlePress}
-            disabled={!isSelectionMode && item.status !== 'completed' && item.status !== 'failed'}
+            disabled={!isSelectionMode && item.status !== 'completed' && item.status !== 'failed' && item.status !== 'pending'}
             accessibilityLabel={item.status === 'completed' 
                 ? getConfidenceAccessibilityLabel(confidence)
                 : `Job ${item.status}, created ${new Date(item.created_at).toLocaleDateString()}`
             }
         >
-            {coverImageUrl ? (
-                <Image source={{ uri: coverImageUrl }} style={styles.thumbnail} />
+            {thumbnailUrl ? (
+                <Image source={{ uri: thumbnailUrl }} style={styles.thumbnail} />
             ) : (
                 <View style={[styles.thumbnail, styles.thumbnailPlaceholder]}>
-                    <ImageIcon size={24} color="#9CA3AF" />
+                    {displayInfo.badgeIcon === 'camera' ? (
+                        <ImageIcon size={24} color="#9CA3AF" />
+                    ) : displayInfo.badgeIcon === 'barcode' ? (
+                        <BarChart3 size={24} color="#9CA3AF" />
+                    ) : (
+                        <Type size={24} color="#9CA3AF" />
+                    )}
                 </View>
             )}
             <View style={styles.rowTextContainer}>
-                <Text style={styles.rowDate}>{new Date(item.created_at).toLocaleString()}</Text>
+                <View style={styles.rowDateAndBadge}>
+                    <Text style={styles.rowDate}>{new Date(item.created_at).toLocaleString()}</Text>
+                    <JobTypeBadge job={item} />
+                </View>
                 {item.status === 'completed' ? (
                     <View style={styles.completedStatusContainer}>
-                        {(() => {
-                            const iconConfig = getConfidenceIcon(confidence);
-                            const IconComponent = iconConfig.name === 'CheckCircle2' ? CheckCircle2 
-                                : iconConfig.name === 'AlertTriangle' ? AlertTriangle 
-                                : AlertCircle;
-                            return <IconComponent size={16} color={iconConfig.color} />;
-                        })()}
-                        <Text style={[
-                            styles.completedStatusText,
-                            confidence === 'medium' && styles.mediumConfidenceText,
-                            confidence === 'low' && styles.lowConfidenceText
-                        ]}>
-                            {getConfidenceDisplayText(confidence)}
-                        </Text>
+                        {jobType === 'ai' ? (
+                            <>
+                                {(() => {
+                                    const iconConfig = getConfidenceIcon(confidence);
+                                    const IconComponent = iconConfig.name === 'CheckCircle2' ? CheckCircle2 
+                                        : iconConfig.name === 'AlertTriangle' ? AlertTriangle 
+                                        : AlertCircle;
+                                    return <IconComponent size={16} color={iconConfig.color} />;
+                                })()}
+                                <Text style={[
+                                    styles.completedStatusText,
+                                    confidence === 'medium' && styles.mediumConfidenceText,
+                                    confidence === 'low' && styles.lowConfidenceText
+                                ]}>
+                                    {getConfidenceDisplayText(confidence)}
+                                </Text>
+                            </>
+                        ) : (
+                            <>
+                                <CheckCircle2 size={16} color="#1FB1AB" />
+                                <Text style={[styles.completedStatusText, { color: '#1FB1AB' }]}>
+                                    {getCertaintyDisplayText(item)}
+                                </Text>
+                            </>
+                        )}
                     </View>
                 ) : (
                     <Text style={styles.rowStatus}>{item.status.charAt(0).toUpperCase() + item.status.slice(1)}</Text>
@@ -234,9 +293,10 @@ const JobStatusRow = ({
     );
 };
 
-type SortOption = 'date-desc' | 'date-asc' | 'status';
+type SortOption = 'date-desc' | 'date-asc' | 'status' | 'method';
 type FilterOption = 'all' | 'pending' | 'processing' | 'completed' | 'failed' | 'needs-review';
 type ConfidenceFilterOption = 'all' | 'high' | 'medium' | 'low';
+type MethodFilterOption = 'all' | 'ai' | 'isbn_scan' | 'isbn_manual';
 
 export default function CatalogJobsScreen() {
   const { organizationId } = useAuth();
@@ -248,6 +308,7 @@ export default function CatalogJobsScreen() {
   const [sortBy, setSortBy] = useState<SortOption>('date-desc');
   const [filterBy, setFilterBy] = useState<FilterOption>('all');
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilterOption>('all');
+  const [methodFilter, setMethodFilter] = useState<MethodFilterOption>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -284,9 +345,7 @@ export default function CatalogJobsScreen() {
           .single();
         
         const status = (jobInfo as any)?.status || 'unknown';
-        const errorMessage = status === 'completed' 
-          ? 'Completed jobs cannot be deleted. You can only delete pending or failed jobs.'
-          : status === 'processing'
+        const errorMessage = status === 'processing'
           ? 'Jobs that are currently processing cannot be deleted.'
           : 'Job deletion failed: You may not have permission to delete this job.';
         
@@ -404,33 +463,67 @@ export default function CatalogJobsScreen() {
       }
       console.log('✅ New job created with ID:', newJobId);
 
-      // Now trigger the Edge Function API to actually process the job
-      console.log('🚀 Triggering Edge Function API...');
-      const edgeFunctionPayload = { jobId: newJobId };
-      const API_ENDPOINT = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-cataloging-job`;
-      const session = await supabase.auth.getSession();
-      const token = session?.data?.session?.access_token;
+      // Determine job type and use appropriate processing method
+      const jobType = getJobType(job);
+      console.log('🔍 Job type detected:', jobType);
 
-      if (!token) {
-        console.error('❌ No authentication token found');
-        throw new Error('Authentication token not found');
+      if (jobType === 'isbn_scan' || jobType === 'isbn_manual') {
+        // For ISBN jobs, fetch book data and update job directly
+        console.log('📚 Processing ISBN job - fetching book data...');
+        const isbn = (job as any).image_urls.isbn;
+        
+        if (!isbn) {
+          throw new Error('ISBN not found in job data');
+        }
+
+        const bookData = await fetchBookDataByIsbn(isbn);
+        console.log('✅ Book data fetched successfully');
+
+        // Update the job with the fetched data
+        console.log('📝 Updating job with book data...');
+        const { error: updateError } = await supabase
+          .from('cataloging_jobs')
+          .update({ 
+            extracted_data: bookData, 
+            status: 'completed' 
+          })
+          .eq('job_id', newJobId);
+
+        if (updateError) {
+          console.error('❌ Failed to update job with book data:', updateError);
+          throw updateError;
+        }
+        console.log('✅ ISBN job processing completed successfully');
+
+      } else {
+        // For AI jobs, trigger Edge Function API
+        console.log('🚀 Triggering Edge Function API for AI job...');
+        const edgeFunctionPayload = { jobId: newJobId };
+        const API_ENDPOINT = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-cataloging-job`;
+        const session = await supabase.auth.getSession();
+        const token = session?.data?.session?.access_token;
+
+        if (!token) {
+          console.error('❌ No authentication token found');
+          throw new Error('Authentication token not found');
+        }
+
+        // Call Edge Function API to trigger processing
+        const response = await fetch(API_ENDPOINT, { 
+          method: 'POST', 
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(edgeFunctionPayload)
+        });
+
+        if (!response.ok) {
+          console.error('❌ Edge Function API failed:', response.status, response.statusText);
+          throw new Error(`Edge Function API failed: ${response.status} ${response.statusText}`);
+        }
+        console.log('✅ Edge Function API call successful');
       }
-
-      // Call Edge Function API to trigger processing
-      const response = await fetch(API_ENDPOINT, { 
-        method: 'POST', 
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(edgeFunctionPayload)
-      });
-
-      if (!response.ok) {
-        console.error('❌ Edge Function API failed:', response.status, response.statusText);
-        throw new Error(`Edge Function API failed: ${response.status} ${response.statusText}`);
-      }
-      console.log('✅ Edge Function API call successful');
 
       return newJobId;
     },
@@ -562,28 +655,38 @@ export default function CatalogJobsScreen() {
     
     let filtered = jobs as CatalogJob[];
     
+    // Apply method filter
+    if (methodFilter !== 'all') {
+      filtered = filtered.filter((job: CatalogJob) => {
+        const jobType = getJobType(job);
+        return jobType === methodFilter;
+      });
+    }
+    
     // Apply status filter
     if (filterBy === 'needs-review') {
-      // Show completed jobs with medium or low confidence
-      filtered = (jobs as CatalogJob[]).filter((job: CatalogJob) => {
-        if (job.status === 'completed' && job.extracted_data) {
+      // Show completed jobs with medium or low confidence (AI jobs only)
+      filtered = filtered.filter((job: CatalogJob) => {
+        const jobType = getJobType(job);
+        if (jobType === 'ai' && job.status === 'completed' && job.extracted_data) {
           const confidence = calculateOverallConfidence(job.extracted_data as any);
           return confidence === 'medium' || confidence === 'low';
         }
         return false;
       });
     } else if (filterBy !== 'all') {
-      filtered = (jobs as CatalogJob[]).filter((job: CatalogJob) => job.status === filterBy);
+      filtered = filtered.filter((job: CatalogJob) => job.status === filterBy);
     }
     
-    // Apply confidence filter
+    // Apply confidence filter (AI jobs only)
     if (confidenceFilter !== 'all') {
       filtered = filtered.filter((job: CatalogJob) => {
-        if (job.status === 'completed' && job.extracted_data) {
+        const jobType = getJobType(job);
+        if (jobType === 'ai' && job.status === 'completed' && job.extracted_data) {
           const confidence = calculateOverallConfidence(job.extracted_data as any);
           return confidence === confidenceFilter;
         }
-        // For non-completed jobs, only show in 'high' confidence filter (legacy behavior)
+        // For non-AI jobs or non-completed jobs, only show in 'high' confidence filter
         return confidenceFilter === 'high';
       });
     }
@@ -597,13 +700,18 @@ export default function CatalogJobsScreen() {
         case 'status':
           const statusOrder: Record<string, number> = { 'processing': 0, 'pending': 1, 'failed': 2, 'completed': 3 };
           return (statusOrder[a.status] || 999) - (statusOrder[b.status] || 999);
+        case 'method':
+          const methodOrder: Record<string, number> = { 'ai': 0, 'isbn_scan': 1, 'isbn_manual': 2 };
+          const aMethod = getJobType(a);
+          const bMethod = getJobType(b);
+          return (methodOrder[aMethod] || 999) - (methodOrder[bMethod] || 999);
         default:
           return 0;
       }
     });
     
     return sorted;
-  }, [jobs, sortBy, filterBy, confidenceFilter]);
+  }, [jobs, sortBy, filterBy, confidenceFilter, methodFilter]);
 
   const handleDelete = (jobId: string) => {
     deleteMutation.mutate(jobId);
@@ -682,8 +790,8 @@ export default function CatalogJobsScreen() {
     );
   };
 
-  // Get deletable jobs for selection mode (only pending and failed jobs can be deleted)
-  const deletableJobs = processedJobs.filter(job => job.status === 'pending' || job.status === 'failed');
+  // Get deletable jobs for selection mode (pending, failed, and completed jobs can be deleted)
+  const deletableJobs = processedJobs.filter(job => job.status === 'pending' || job.status === 'failed' || job.status === 'completed');
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -827,7 +935,8 @@ export default function CatalogJobsScreen() {
               {[
                 { key: 'date-desc', label: 'Newest First' },
                 { key: 'date-asc', label: 'Oldest First' },
-                { key: 'status', label: 'Status' }
+                { key: 'status', label: 'Status' },
+                { key: 'method', label: 'Method' }
               ].map((option) => (
                 <TouchableOpacity
                   key={option.key}
@@ -876,6 +985,25 @@ export default function CatalogJobsScreen() {
                 >
                   <Text style={styles.optionText}>{option.label}</Text>
                   {confidenceFilter === option.key && <CheckCircle2 size={20} color="#1FB1AB" />}
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Filter By Method</Text>
+              {[
+                { key: 'all', label: 'All Methods' },
+                { key: 'ai', label: 'AI Cataloging' },
+                { key: 'isbn_scan', label: 'ISBN Scan' },
+                { key: 'isbn_manual', label: 'Manual Entry' }
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.key}
+                  style={styles.optionRow}
+                  onPress={() => setMethodFilter(option.key as MethodFilterOption)}
+                >
+                  <Text style={styles.optionText}>{option.label}</Text>
+                  {methodFilter === option.key && <CheckCircle2 size={20} color="#1FB1AB" />}
                 </TouchableOpacity>
               ))}
             </View>
@@ -1119,5 +1247,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  jobBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  jobBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
+    marginLeft: 3,
+  },
+  rowDateAndBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
 });

@@ -3,6 +3,7 @@ import { Contributor, ContributorsEditor } from '@/components/ContributorsEditor
 import { useAuth } from '@/context/AuthContext';
 import { CatalogJob } from '@/hooks/useCatalogJobs';
 import { supabase } from '@/lib/supabase';
+import { getJobType, getJobDisplayInfo } from '@/utils/catalogJobs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronDown, ChevronRight, ChevronUp, Maximize, Minimize, Search, X } from 'lucide-react-native';
@@ -89,7 +90,7 @@ const FormInput = ({ label, value, onChangeText, multiline = false, keyboardType
 
 // --- Wizard Step Components ---
 
-const Step1_ReviewAndDetails = ({ formData, handleInputChange, contributors, setContributors, conditionId, setConditionId, price, setPrice, sku, setSku, onNext, conditions, isLoadingConditions }: any) => {
+const Step1_ReviewAndDetails = ({ formData, handleInputChange, contributors, setContributors, conditionId, setConditionId, price, setPrice, sku, setSku, onNext, conditions, isLoadingConditions, jobType }: any) => {
   const [isPickerVisible, setPickerVisible] = useState(false);
   const selectedCondition = conditions?.find((c: Condition) => c.condition_id === conditionId);
 
@@ -104,8 +105,16 @@ const Step1_ReviewAndDetails = ({ formData, handleInputChange, contributors, set
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
-      <Text className="text-text text-lg font-bold mb-2">AI Extracted Data</Text>
-      <Text className="text-muted-foreground text-sm mb-6">Please review and correct the details below.</Text>
+      <Text className="text-text text-lg font-bold mb-2">
+        {jobType === 'ai' ? 'AI Extracted Data' : 
+         jobType === 'isbn_scan' ? 'ISBN Scanned Data' : 
+         jobType === 'isbn_manual' ? 'Manually Entered Data' : 
+         'Book Data'}
+      </Text>
+      <Text className="text-muted-foreground text-sm mb-6">
+        {jobType === 'ai' ? 'Please review and correct the details below.' :
+         'Please review and adjust the details before adding to inventory.'}
+      </Text>
       
       <FormInput 
         label="Title" 
@@ -410,8 +419,12 @@ export default function CatalogReviewScreen() {
             if (error) throw new Error(error.message);
             return data;
         },
-        enabled: !!job_id,
+        enabled: !!job_id && !!organizationId
     });
+
+    // Determine job type
+    const jobType = job ? getJobType(job) : null;
+    const displayInfo = job ? getJobDisplayInfo(job) : null;
 
     // Fetch conditions, categories, and attribute types
     const { data: conditions, isLoading: isLoadingConditions } = useQuery<Condition[]>({
@@ -516,6 +529,25 @@ export default function CatalogReviewScreen() {
             } else {
                 setContributors([{ name: '', author_type_id: DEFAULT_AUTHOR_TYPE_ID }]);
             }
+        } else if (job && job.status === 'pending') {
+            // For pending jobs without extracted_data, set minimal formData
+            const isbn = job.image_urls?.isbn || '';
+            setFormData({
+                title: isbn ? `Book (ISBN: ${isbn})` : 'Pending Book',
+                subtitle: '',
+                description: '',
+                authors: [],
+                publisher: '',
+                isbn: isbn,
+                page_count: null,
+                publication_year: null,
+                cover_image_url: null,
+                format_type: '',
+                condition_notes: ''
+            });
+            
+            // Set empty contributor for pending jobs
+            setContributors([{ name: '', author_type_id: DEFAULT_AUTHOR_TYPE_ID }]);
         }
     }, [job]);
 
@@ -570,7 +602,7 @@ export default function CatalogReviewScreen() {
 
     const renderStep = () => {
         switch (step) {
-            case 1: return <Step1_ReviewAndDetails {...{ formData, handleInputChange, contributors, setContributors, conditionId, setConditionId, price, setPrice, sku, setSku, onNext: () => setStep(2), conditions, isLoadingConditions }} />;
+            case 1: return <Step1_ReviewAndDetails {...{ formData, handleInputChange, contributors, setContributors, conditionId, setConditionId, price, setPrice, sku, setSku, onNext: () => setStep(2), conditions, isLoadingConditions, jobType }} />;
             case 2: return <Step2_Attributes selectedIds={selectedAttributeIds} onToggle={(id: string) => setSelectedAttributeIds(p => p.includes(id) ? p.filter(i => i !== id) : [...p, id])} onNext={() => setStep(3)} attributeCategories={attributeCategories} attributeTypes={attributeTypes} isLoadingAttributes={isLoadingAttributes} />;
             case 3: return <Step3_NotesAndSave {...{ notes, setNotes, onSave: handleSave, isSaving: finalizeMutation.isPending }} />;
             default: return null;
@@ -589,7 +621,7 @@ export default function CatalogReviewScreen() {
         <SafeAreaView className="flex-1 bg-background">
             <Stack.Screen options={{ 
                 headerShown: true, 
-                headerTitle: `Step ${step} of 3`,
+                headerTitle: displayInfo ? `${displayInfo.displayName} - Step ${step} of 3` : `Step ${step} of 3`,
                 headerBackTitle: "Cataloging Jobs",
                 headerLeft: () => (
                     <TouchableOpacity onPress={() => step === 1 ? router.back() : setStep(step - 1)} className="p-2">

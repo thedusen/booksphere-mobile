@@ -1,18 +1,30 @@
 // app/(app)/scan.tsx
 
+import { useAuth } from '@/context/AuthContext';
+import { useSnackbar } from '@/hooks/useSnackbar';
+import { supabase } from '@/lib/supabase';
+import { ApiResponse, BookData } from '@/types/api';
 import { useFocusEffect } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Stack, useRouter } from 'expo-router';
 // ✅ 1. Import the new icon
 import { BookCopy, ChevronLeft, Flashlight, Type } from 'lucide-react-native';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Button, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
-  const [scanned, setScanned] = useState(true);
+  const [scanned, setScanned] = useState(false);
   const [isFlashOn, setIsFlashOn] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isBatchMode, setIsBatchMode] = useState(false); // Toggle between Quick Add and Batch Scan
+  const processingLock = useRef(false); // Atomic lock to prevent any duplicate processing
+  const lastScanTime = useRef(0); // For debouncing camera events
   const router = useRouter();
+  const { user, organizationId } = useAuth();
+  const { showSnackbar } = useSnackbar();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (permission && !permission.granted) {
@@ -20,22 +32,176 @@ export default function ScanScreen() {
     }
   }, [permission, requestPermission]);
 
+  // Single cleanup function
+  const resetAllState = useCallback(() => {
+    processingLock.current = false;
+    setScanned(false);
+    setIsProcessing(false);
+    console.log('🔓 State reset - ready for next scan');
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      setScanned(false);
+      resetAllState();
       return () => {
         setScanned(true);
         setIsFlashOn(false);
       };
-    }, [])
+    }, [resetAllState])
   );
 
-  const handleBarCodeScanned = ({ data }: { data: string }) => {
-    if (!scanned) {
-      setScanned(true);
-      router.push({ pathname: '/review', params: { isbn: data } });
+  const fetchBookDataByIsbn = async (isbn: string): Promise<BookData> => {
+    const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+    const response = await fetch(`${baseUrl}/getEnrichedBookDataByIsbn?isbn=${isbn}`);
+    if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
+    const data: ApiResponse = await response.json();
+    if (data.jsonResult && data.jsonResult.bookData) return data.jsonResult.bookData;
+    throw new Error("Book data not found for this ISBN.");
+  };
+
+  const handleBarCodeScannedInternal = async ({ data }: { data: string }) => {
+    const timestamp = Date.now();
+    
+    // ATOMIC LOCK CHECK - Single point of failure prevention
+    if (processingLock.current) {
+      console.log(`🚫 [${timestamp}] DUPLICATE BLOCKED - Lock already held for processing`);
+      return;
+    }
+    
+    // ACQUIRE LOCK IMMEDIATELY (synchronous, atomic)
+    processingLock.current = true;
+    console.log(`🔒 [${timestamp}] LOCK ACQUIRED - Processing barcode: ${data}`);
+    
+    // Set UI state
+    setScanned(true);
+    setIsProcessing(true);
+    
+    if (!user || !organizationId) {
+      showSnackbar('error', 'You must be logged in to scan books.');
+      console.log(`❌ [${timestamp}] Auth failed - releasing lock`);
+      processingLock.current = false;
+      setIsProcessing(false);
+      return;
+    }
+
+    try {
+      if (isBatchMode) {
+        // BATCH SCAN MODE: Synchronous processing
+        console.log(`📋 [${timestamp}] Batch mode - fetching book data for: ${data}`);
+        const bookData = await fetchBookDataByIsbn(data);
+        
+        console.log(`💾 [${timestamp}] Creating cataloging job for: ${data}`);
+        const { data: newJobId, error: createError } = await supabase
+          .rpc('create_cataloging_job', {
+            image_urls_payload: {
+              isbn: data,
+              method: 'scan',
+              job_type: 'isbn_scan'
+            }
+          });
+          
+        if (createError) {
+          console.error(`❌ [${timestamp}] Failed to create cataloging job:`, createError);
+          throw createError;
+        }
+
+        console.log(`📝 [${timestamp}] Updating job ${newJobId} with book data`);
+        const { error: updateError } = await supabase
+          .from('cataloging_jobs')
+          .update({
+            extracted_data: bookData,
+            status: 'completed'
+          })
+          .eq('job_id', newJobId);
+          
+        if (updateError) {
+          console.error(`❌ [${timestamp}] Failed to update cataloging job:`, updateError);
+          throw updateError;
+        }
+
+        console.log(`✅ [${timestamp}] Batch job completed successfully: ${newJobId}`);
+        showSnackbar('success', 'Book added to catalog jobs!');
+        // Stay on scan screen for next book in batch mode
+        setTimeout(() => resetAllState(), 1000);
+        
+      } else {
+        // QUICK ADD MODE: Synchronous job creation only
+        console.log(`⚡ [${timestamp}] Quick Add mode - creating job for: ${data}`);
+        
+        const { data: newJobId, error } = await supabase.rpc('create_cataloging_job', {
+          image_urls_payload: {
+            isbn: data,
+            method: 'scan',
+            job_type: 'isbn_scan'
+          }
+        });
+        
+        if (error) {
+          console.error(`❌ [${timestamp}] Failed to create Quick Add job:`, error);
+          throw error;
+        }
+        
+        console.log(`✅ [${timestamp}] Quick Add job created: ${newJobId}`);
+        
+        // Navigate to review screen with both ISBN and job ID
+        console.log(`🧭 [${timestamp}] Navigating to review screen`);
+        router.push({ 
+          pathname: '/review', 
+          params: { 
+            isbn: data,
+            job_id: newJobId
+          } 
+        });
+      }
+    } catch (error: any) {
+        console.error(`❌ [${timestamp}] Error processing ISBN ${data}:`, error);
+        
+        if (isBatchMode) {
+          // Create failed job for later retry in batch mode
+          try {
+            const { data: failedJobId } = await supabase.rpc('create_cataloging_job', {
+              image_urls_payload: {
+                isbn: data,
+                method: 'scan',
+                job_type: 'isbn_scan'
+              }
+            });
+            console.log(`📝 [${timestamp}] Created failed job for retry: ${failedJobId}`);
+            showSnackbar('error', `Failed to find book data for ISBN: ${data}. Job saved for later retry.`);
+          } catch (jobError) {
+            console.error(`❌ [${timestamp}] Failed to create failed job:`, jobError);
+            showSnackbar('error', `Failed to process ISBN: ${data}`);
+          }
+          // Stay on scan screen for next book in batch mode
+          setTimeout(() => resetAllState(), 1000);
+        } else {
+          // Show error in quick mode
+          showSnackbar('error', `Failed to find book data for ISBN: ${data}`);
+          // Reset state after error in quick mode
+          setTimeout(() => resetAllState(), 500);
+        }
+    } finally {
+      // ALWAYS release the lock
+      console.log(`🔓 [${timestamp}] LOCK RELEASED for: ${data}`);
+      processingLock.current = false;
+      setIsProcessing(false);
     }
   };
+
+  // DEBOUNCED HANDLER - Prevents rapid-fire camera events
+  const handleBarCodeScanned = useCallback(({ data }: { data: string }) => {
+    const now = Date.now();
+    
+    // Debounce: Ignore scans within 100ms of each other
+    if (now - lastScanTime.current < 100) {
+      console.log(`⏱️ [${now}] DEBOUNCE BLOCKED - Too rapid (${now - lastScanTime.current}ms)`);
+      return;
+    }
+    
+    lastScanTime.current = now;
+    console.log(`⚡ [${now}] DEBOUNCE PASSED - Calling internal handler`);
+    handleBarCodeScannedInternal({ data });
+  }, [handleBarCodeScannedInternal]);
 
   const toggleFlash = () => {
     setIsFlashOn(current => !current);
@@ -59,7 +225,7 @@ export default function ScanScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       
       <CameraView
-        onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+        onBarcodeScanned={scanned || isProcessing ? undefined : handleBarCodeScanned}
         barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8"] }}
         style={StyleSheet.absoluteFillObject}
         facing="back"
@@ -67,7 +233,7 @@ export default function ScanScreen() {
       />
 
       <View style={styles.overlay}>
-        {/* Header is unchanged */}
+        {/* Header with mode toggle */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -75,6 +241,26 @@ export default function ScanScreen() {
           >
             <ChevronLeft size={32} color="white" />
           </TouchableOpacity>
+          
+          {/* Mode Toggle */}
+          <View style={styles.modeToggle}>
+            <TouchableOpacity
+              onPress={() => setIsBatchMode(false)}
+              style={[styles.modeButton, !isBatchMode && styles.modeButtonActive]}
+            >
+              <Text style={[styles.modeText, !isBatchMode && styles.modeTextActive]}>
+                Quick Add
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setIsBatchMode(true)}
+              style={[styles.modeButton, isBatchMode && styles.modeButtonActive]}
+            >
+              <Text style={[styles.modeText, isBatchMode && styles.modeTextActive]}>
+                Batch Scan
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
         
         {/* Scanner Area is unchanged */}
@@ -87,8 +273,19 @@ export default function ScanScreen() {
             <View style={styles.scanLine} />
           </View>
           <Text style={styles.instructionText}>
-            Point camera at the barcode
+            {isProcessing 
+              ? 'Processing ISBN...' 
+              : isBatchMode 
+                ? 'Scan barcodes - books added to catalog jobs'
+                : 'Point camera at the barcode'
+            }
           </Text>
+          {isProcessing && (
+            <View style={styles.processingContainer}>
+              <ActivityIndicator size="large" color="#1FB1AB" />
+              <Text style={styles.processingText}>Looking up book data...</Text>
+            </View>
+          )}
         </View>
 
         {/* ✅ 2. Footer updated to include the "No ISBN" button */}
@@ -150,12 +347,37 @@ const styles = StyleSheet.create({
     top: 80, 
     width: '100%', 
     flexDirection: 'row', 
-    justifyContent: 'flex-start', 
-    alignItems: 'center' 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    paddingHorizontal: 20,
   },
   backButton: { 
-    marginLeft: 20, 
     padding: 8 
+  },
+  modeToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 20,
+    padding: 2,
+  },
+  modeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 18,
+    minWidth: 80,
+  },
+  modeButtonActive: {
+    backgroundColor: '#1FB1AB',
+  },
+  modeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    opacity: 0.7,
+  },
+  modeTextActive: {
+    opacity: 1,
   },
   scannerArea: { 
     flex: 1, 
@@ -224,5 +446,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 6,
     fontWeight: '600',
+  },
+  processingContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  processingText: {
+    color: 'white',
+    fontSize: 14,
+    marginTop: 10,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
   },
 });
